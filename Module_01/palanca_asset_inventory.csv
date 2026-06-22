@@ -1,0 +1,11 @@
+Device Name,Purdue Level,Vendor / Model,IP Address,MAC Address,Protocol(s),Firmware / OS Version,Criticality,Last Patched,Physical Location,Notes / SPOF
+PLC-Main-01,L___,Siemens S7-1200,192.168.100.10,,Modbus/TCP (Port 502),,Critical,2025-01-10,Electrical Room A,
+GEN1-RTU,L___,GE Automation RTU 300,Serial (RS-485),,Modbus RTU (Serial),,Critical,2024-06-15,Generator Deck 1,
+PROTECT-REL-01,L___,ABB REL670,192.168.100.30,,Modbus RTU over TCP,,Critical,2024-08-20,Switchgear Room,
+VFD-PUMP-01,L___,ABB ACS580,192.168.100.40,,Modbus/TCP (Port 502),,Important,2024-12-01,Pump Room B,
+SENSOR-TEMP-01,L___,Rosemount 3144P,HART (4-20mA analog),,HART,,Important,N/A,Separator Deck,Passive sensor — firmware update requires physical access
+SCADA-HMI-01,L___,Windows 10 Pro (Dell OptiPlex),192.168.100.20,,Modbus/TCP; OPC-UA (Port 4840),,Critical,2025-02-20,Control Room,
+ENG-WS-01,L___,Windows 10 Pro (HP EliteDesk),192.168.100.21,,Modbus/TCP; OPC-UA,,Important,2025-01-15,Control Room,
+HISTORIAN-01,L___,Windows Server 2019 (Dell PowerEdge),192.168.150.20,,OPC-UA (Port 4840); SQL Server,,Important,2025-01-30,Server Room,
+DMZ-GATEWAY-01,L___,Ubuntu 22.04 LTS,192.168.150.10,,OPC-UA; iptables Firewall,,Critical,2025-03-01,Server Room,
+SWITCH-MAIN-01,L___,Cisco Catalyst 2960X-24TS,192.168.100.1,,Ethernet 802.1Q VLAN; SNMP,,Critical,2024-11-05,Electrical Room A,SPOF — no redundant switch

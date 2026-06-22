@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  palanca_topology_base.xml — Palanca Gas Plant Network Topology
+  OCEON Module 1 Lab 6 — Network Documentation
+
+  Base diagram for trainee annotation.
+  Devices are shown as unlabelled icons — trainees add:
+    - Device name
+    - IP address
+    - Purdue level
+    - Protocol labels on each link
+    - VLAN boundary boxes
+    - SPOF annotations
+
+  Open with: https://app.diagrams.net or draw.io desktop
+  Or from terminal: drawio palanca_topology_base.xml
+-->
+<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1"
+              tooltips="1" connect="1" arrows="1" fold="1"
+              page="1" pageScale="1" pageWidth="1654" pageHeight="1169"
+              math="0" shadow="0">
+  <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+
+    <!-- ── TITLE ───────────────────────────────────────────────── -->
+    <mxCell id="title" value="PALANCA GAS PLANT — OT NETWORK TOPOLOGY&#xa;Lab 6: Add device labels, IP addresses, Purdue levels, VLAN boundaries, and SPOF markers"
+            style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=16;fontStyle=1;fontColor=#1F497D;"
+            vertex="1" parent="1">
+      <mxGeometry x="227" y="20" width="1200" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- ── LEGEND ──────────────────────────────────────────────── -->
+    <mxCell id="legend_bg" value="" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" vertex="1" parent="1">
+      <mxGeometry x="20" y="100" width="200" height="220" as="geometry"/>
+    </mxCell>
+    <mxCell id="legend_title" value="LEGEND" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=12;fontColor=#1F497D;" vertex="1" parent="1">
+      <mxGeometry x="20" y="105" width="200" height="25" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg1" value="PLC / RTU" style="shape=mxgraph.cisco.servers.standard_server;html=1;pointerEvents=1;dashed=0;fillColor=#dae8fc;strokeColor=#6c8ebf;vertices=1;align=center;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="35" y="135" width="40" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg1t" value="PLC / RTU" style="text;html=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="80" y="148" width="130" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg2" value="HMI / WS" style="shape=mxgraph.cisco.computers_and_peripherals.pc;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="35" y="182" width="40" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg2t" value="HMI / Workstation" style="text;html=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="80" y="196" width="130" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg3" value="Switch" style="shape=mxgraph.cisco.switches.catalyst_702x_702x;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="35" y="228" width="40" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg3t" value="Managed Switch" style="text;html=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="80" y="242" width="130" height="20" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg4" value="Server" style="shape=mxgraph.cisco.servers.standard_server;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+      <mxGeometry x="35" y="274" width="40" height="40" as="geometry"/>
+    </mxCell>
+    <mxCell id="leg4t" value="Server / Historian" style="text;html=1;fontSize=10;" vertex="1" parent="1">
+      <mxGeometry x="80" y="288" width="130" height="20" as="geometry"/>
+    </mxCell>
+
+    <!-- ── VLAN BOUNDARY BOXES (dashed, trainees label these) ─── -->
+    <!-- VLAN 10 - OT Field -->
+    <mxCell id="vlan10_box" value="VLAN ___&#xa;Name: _______________&#xa;Devices: ____________" 
+            style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#1F497D;dashed=1;dashPattern=8 4;verticalAlign=top;fontSize=11;fontColor=#1F497D;strokeWidth=2;"
+            vertex="1" parent="1">
+      <mxGeometry x="240" y="100" width="420" height="380" as="geometry"/>
+    </mxCell>
+
+    <!-- VLAN 20 - Supervisory -->
+    <mxCell id="vlan20_box" value="VLAN ___&#xa;Name: _______________&#xa;Devices: ____________"
+            style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#BF9000;dashed=1;dashPattern=8 4;verticalAlign=top;fontSize=11;fontColor=#BF9000;strokeWidth=2;"
+            vertex="1" parent="1">
+      <mxGeometry x="700" y="100" width="380" height="240" as="geometry"/>
+    </mxCell>
+
+    <!-- VLAN 30 - DMZ -->
+    <mxCell id="vlan30_box" value="VLAN ___&#xa;Name: _______________&#xa;Devices: ____________"
+            style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#538135;dashed=1;dashPattern=8 4;verticalAlign=top;fontSize=11;fontColor=#538135;strokeWidth=2;"
+            vertex="1" parent="1">
+      <mxGeometry x="700" y="380" width="380" height="200" as="geometry"/>
+    </mxCell>
+
+    <!-- Corporate IT (outside OT) -->
+    <mxCell id="corp_box" value="Corporate IT&#xa;(Outside OT perimeter)"
+            style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;dashed=1;dashPattern=4 4;verticalAlign=top;fontSize=11;fontColor=#666666;"
+            vertex="1" parent="1">
+      <mxGeometry x="1120" y="380" width="280" height="200" as="geometry"/>
+    </mxCell>
+
+    <!-- ── NETWORK DEVICES ──────────────────────────────────────── -->
+
+    <!-- SWITCH-MAIN-01 (centre of topology) -->
+    <mxCell id="switch_main" value="Device: _______________&#xa;Type: ________________&#xa;IP: __________________&#xa;Purdue: ______________&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.switches.catalyst_702x_702x;html=1;pointerEvents=1;dashed=0;fillColor=#d5e8d4;strokeColor=#82b366;vertices=1;align=center;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="790" y="260" width="80" height="80" as="geometry"/>
+    </mxCell>
+    <mxCell id="switch_label" value="[SWITCH-MAIN-01]&#xa;??? SPOF — Add mitigation note" style="text;html=1;fontSize=9;fontColor=#FF0000;align=center;" vertex="1" parent="1">
+      <mxGeometry x="755" y="350" width="150" height="35" as="geometry"/>
+    </mxCell>
+
+    <!-- PLC-Main-01 -->
+    <mxCell id="plc_main" value="Device: _______________&#xa;Type: PLC&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.servers.standard_server;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="280" y="200" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- GEN1-RTU (serial — no IP) -->
+    <mxCell id="gen1_rtu" value="Device: _______________&#xa;Type: RTU&#xa;IP: SERIAL ONLY&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.servers.standard_server;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="280" y="330" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- PROTECT-REL-01 -->
+    <mxCell id="prot_rel" value="Device: _______________&#xa;Type: Protection Relay&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.servers.standard_server;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="400" y="200" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- VFD-PUMP-01 -->
+    <mxCell id="vfd_pump" value="Device: _______________&#xa;Type: VFD&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.servers.standard_server;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="400" y="330" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- SENSOR-TEMP-01 (field level, HART) -->
+    <mxCell id="sensor_temp" value="Device: _______________&#xa;Type: HART Sensor&#xa;IP: HART ANALOG&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;"
+            vertex="1" parent="1">
+      <mxGeometry x="280" y="420" width="80" height="50" as="geometry"/>
+    </mxCell>
+
+    <!-- SCADA-HMI-01 -->
+    <mxCell id="scada_hmi" value="Device: _______________&#xa;Type: HMI / PC&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.computers_and_peripherals.pc;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="730" y="140" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- ENG-WS-01 -->
+    <mxCell id="eng_ws" value="Device: _______________&#xa;Type: Eng Workstation&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.computers_and_peripherals.pc;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="990" y="140" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- DMZ-GATEWAY-01 -->
+    <mxCell id="dmz_gw" value="Device: _______________&#xa;Type: Firewall/GW&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.firewalls.firewall;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="860" y="420" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- HISTORIAN-01 -->
+    <mxCell id="historian" value="Device: _______________&#xa;Type: Historian Server&#xa;IP: __________________&#xa;Purdue: L___&#xa;Protocol: ____________"
+            style="shape=mxgraph.cisco.servers.standard_server;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="730" y="420" width="60" height="60" as="geometry"/>
+    </mxCell>
+
+    <!-- Corporate IT (placeholder) -->
+    <mxCell id="corp_it" value="Corporate IT&#xa;(Outside scope)&#xa;No OT access"
+            style="shape=mxgraph.cisco.sites.generic_building;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;verticalAlign=bottom;"
+            vertex="1" parent="1">
+      <mxGeometry x="1190" y="430" width="80" height="80" as="geometry"/>
+    </mxCell>
+
+    <!-- ── CONNECTIONS (trainees add protocol labels) ─────────────
+         All links are unlabelled — trainees add:
+           - Protocol name
+           - Direction arrow if needed
+           - Port number
+    ──────────────────────────────────────────────────────────────── -->
+
+    <!-- PLC → Switch (Modbus/TCP) -->
+    <mxCell id="e_plc_sw" value="Protocol: ___&#xa;Port: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;fontSize=9;"
+            edge="1" source="plc_main" target="switch_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- PROTECT-REL → Switch -->
+    <mxCell id="e_rel_sw" value="Protocol: ___&#xa;Port: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;"
+            edge="1" source="prot_rel" target="switch_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- VFD → Switch -->
+    <mxCell id="e_vfd_sw" value="Protocol: ___&#xa;Port: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;"
+            edge="1" source="vfd_pump" target="switch_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- GEN1-RTU → PLC (serial RS-485) -->
+    <mxCell id="e_rtu_plc" value="Protocol: ___&#xa;(Serial link)"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;fontSize=9;"
+            edge="1" source="gen1_rtu" target="plc_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- SENSOR → PLC (HART analog) -->
+    <mxCell id="e_sen_plc" value="Protocol: ___&#xa;(4-20 mA)"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;strokeColor=#666666;fontSize=9;"
+            edge="1" source="sensor_temp" target="plc_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- HMI → Switch -->
+    <mxCell id="e_hmi_sw" value="Protocol: ___&#xa;Port: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;"
+            edge="1" source="scada_hmi" target="switch_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- ENG-WS → Switch -->
+    <mxCell id="e_eng_sw" value="Protocol: ___&#xa;Port: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;"
+            edge="1" source="eng_ws" target="switch_main" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Switch → DMZ Gateway (OPC-UA) -->
+    <mxCell id="e_sw_gw" value="Protocol: ___&#xa;Port: ___&#xa;Direction: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;strokeColor=#b85450;"
+            edge="1" source="switch_main" target="dmz_gw" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- Switch → Historian -->
+    <mxCell id="e_sw_hist" value="Protocol: ___&#xa;Port: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;strokeColor=#b85450;"
+            edge="1" source="switch_main" target="historian" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- DMZ Gateway → Historian -->
+    <mxCell id="e_gw_hist" value="Protocol: ___&#xa;Firewall rule: ___"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;strokeColor=#b85450;strokeWidth=2;"
+            edge="1" source="dmz_gw" target="historian" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- DMZ Gateway → Corporate IT -->
+    <mxCell id="e_gw_corp" value="Protocol: ___&#xa;Port: ___&#xa;[BOUNDARY]"
+            style="edgeStyle=orthogonalEdgeStyle;html=1;fontSize=9;strokeColor=#666666;dashed=1;"
+            edge="1" source="dmz_gw" target="corp_it" parent="1">
+      <mxGeometry relative="1" as="geometry"/>
+    </mxCell>
+
+    <!-- ── ANNOTATION PLACEHOLDERS ─────────────────────────────── -->
+    <!-- SPOF marker placeholder -->
+    <mxCell id="spof_note" value="??? Add SPOF labels here&#xa;(red labels, then add mitigation in the SPOF register tab)"
+            style="text;html=1;strokeColor=#FF0000;fillColor=#FFE6E6;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#FF0000;"
+            vertex="1" parent="1">
+      <mxGeometry x="1120" y="100" width="280" height="80" as="geometry"/>
+    </mxCell>
+
+    <!-- Purdue levels label -->
+    <mxCell id="purdue_labels" value="Level 0 (Field): Physical sensors, no IP&#xa;Level 1 (Control): PLCs, RTUs — VLAN 10&#xa;Level 2 (Supervisory): HMIs, WS — VLAN 20&#xa;Level 3 (Operations): Historian — VLAN 30&#xa;Level 3.5 (DMZ): Gateway — VLAN 30&#xa;Level 4 (Enterprise): Corporate IT"
+            style="text;html=1;strokeColor=#1F497D;fillColor=#EEF3F9;align=left;verticalAlign=top;whiteSpace=wrap;rounded=1;fontSize=10;fontColor=#1F497D;"
+            vertex="1" parent="1">
+      <mxGeometry x="20" y="360" width="200" height="160" as="geometry"/>
+    </mxCell>
+
+    <!-- Criticality colour guide -->
+    <mxCell id="crit_guide" value="Criticality colouring:&#xa;RED label = Critical device&#xa;AMBER label = Important device"
+            style="text;html=1;strokeColor=#BF9000;fillColor=#FFF2CC;align=left;verticalAlign=top;whiteSpace=wrap;rounded=1;fontSize=10;"
+            vertex="1" parent="1">
+      <mxGeometry x="20" y="540" width="200" height="80" as="geometry"/>
+    </mxCell>
+
+  </root>
+</mxGraphModel>
