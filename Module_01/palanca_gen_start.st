@@ -244,7 +244,7 @@ END_CASE;
 
 (* Scan cycle counter — increments every scan *)
 ScanCount := ScanCount + 1;
-%MW11 := INT_TO_INT(DINT_TO_INT(ScanCount MOD 10000));
+%MW11 := DINT_TO_INT(ScanCount MOD 10000);
 
 (* Write input registers (read-only, actual measurements — FC 0x04) *)
 %IW0 := GEN1_FREQUENCY_x100;

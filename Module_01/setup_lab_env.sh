@@ -2,8 +2,10 @@
 # ================================================================
 # OCEON Module 1 Lab Environment Bootstrap
 # File: setup_lab_env.sh
+# Target: Ubuntu 22.04/24.04 LTS or Kali Linux (rolling), x86_64
 # Run this ONCE on the instructor VM before class, then replicate
 # to all trainee VMs.  Safe to re-run — idempotent.
+# Run as your normal user: bash setup_lab_env.sh (it calls sudo itself)
 # ================================================================
 set -euo pipefail
 
@@ -13,9 +15,9 @@ BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 LAB_ROOT="$HOME/palanca_labs/module1"
 PASS=0; FAIL=0; WARN=0
 
-log_ok()   { echo -e "${GREEN}[OK]${NC}    $*"; ((PASS++)); }
-log_fail() { echo -e "${RED}[FAIL]${NC}  $*"; ((FAIL++)); }
-log_warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; ((WARN++)); }
+log_ok()   { echo -e "${GREEN}[OK]${NC}    $*"; PASS=$((PASS + 1)); }
+log_fail() { echo -e "${RED}[FAIL]${NC}  $*"; FAIL=$((FAIL + 1)); }
+log_warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; WARN=$((WARN + 1)); }
 log_info() { echo -e "${CYAN}[INFO]${NC}  $*"; }
 log_step() { echo -e "\n${BLUE}══════ $* ══════${NC}"; }
 
@@ -31,17 +33,47 @@ cat << 'BANNER'
 BANNER
 echo -e "${NC}"
 
+# ── STEP 0: OS detection ─────────────────────────────────────────
+# Supports Ubuntu (22.04/24.04) and Kali Linux (rolling) — both are
+# Debian-based with apt, but package availability and interactive
+# debconf prompts differ enough to need explicit handling below.
+log_step "STEP 0: OS detection"
+if [[ -r /etc/os-release ]]; then
+    OS_ID=$(. /etc/os-release && echo "$ID")
+    OS_PRETTY=$(. /etc/os-release && echo "$PRETTY_NAME")
+else
+    OS_ID="unknown"
+    OS_PRETTY="unknown"
+fi
+
+case "$OS_ID" in
+    ubuntu) log_ok "Detected: $OS_PRETTY" ;;
+    kali)   log_ok "Detected: $OS_PRETTY" ;;
+    *)      log_warn "Detected: $OS_PRETTY (untested — script assumes Debian/Ubuntu apt)" ;;
+esac
+
 # ── STEP 1: System packages ──────────────────────────────────────
 log_step "STEP 1: System packages"
 log_info "Updating package index..."
 sudo apt-get update -qq
 
+# Wireshark's postinst asks an interactive debconf question about
+# non-root packet capture. Preseed the answer and force noninteractive
+# frontend so the install loop below never blocks on a TUI prompt
+# (this hangs the script identically on both Kali and Ubuntu if unset).
+echo "wireshark-common wireshark-common/install-setuid boolean true" | sudo debconf-set-selections
+export DEBIAN_FRONTEND=noninteractive
+
 PKGS=(
     python3 python3-pip python3-venv
     nmap wireshark tshark
     net-tools curl wget git
-    libpcap-dev
-    openjdk-17-jre-headless   # ScadaBR dependency
+    build-essential cmake pkg-config
+    bison flex autoconf
+    libpcap-dev libssl-dev sqlite3 libsqlite3-dev libboost-all-dev
+    default-jre-headless   # ScadaBR dependency — portable metapackage,
+                            # not a hardcoded version that can vanish
+                            # from a rolling distro's repos
 )
 
 for pkg in "${PKGS[@]}"; do
@@ -49,7 +81,7 @@ for pkg in "${PKGS[@]}"; do
         log_ok "$pkg already installed"
     else
         log_info "Installing $pkg..."
-        if sudo apt-get install -y -qq "$pkg" 2>/dev/null; then
+        if sudo -E apt-get install -y -qq "$pkg" 2>/dev/null; then
             log_ok "$pkg installed"
         else
             log_fail "$pkg — installation failed"
@@ -90,18 +122,29 @@ if [[ -d "$OPENPLC_DIR" ]]; then
     log_ok "OpenPLC found at $OPENPLC_DIR"
 else
     log_info "Installing OpenPLC Runtime..."
+    # Remove any stale clone from a prior failed run so this stays
+    # idempotent — 'git clone' refuses to clone into a non-empty dir.
+    rm -rf /tmp/OpenPLC_v3
     cd /tmp
-    git clone https://github.com/thiagoralves/OpenPLC_v3.git --depth=1 -q 2>/dev/null || {
-        log_fail "OpenPLC git clone failed — check internet connectivity"
-    }
-    if [[ -d /tmp/OpenPLC_v3 ]]; then
+    if git clone https://github.com/thiagoralves/OpenPLC_v3.git --depth=1 -q; then
         cd /tmp/OpenPLC_v3
-        sudo bash install.sh linux -q 2>/dev/null && log_ok "OpenPLC installed" || log_fail "OpenPLC install script failed"
+        # OpenPLC vendors an old OpenDNP3 CMakeLists.txt that current
+        # CMake (4.x, shipped by Kali rolling and eventually newer
+        # Ubuntu) refuses to configure without an explicit policy
+        # floor — this env var is the workaround install.sh's own
+        # cmake error message points at.
+        sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux 2>/dev/null && log_ok "OpenPLC installed" || log_fail "OpenPLC install script failed"
+        cd /tmp
+    else
+        log_fail "OpenPLC git clone failed — check internet connectivity"
     fi
 fi
 
-# Create systemd service for OpenPLC if it doesn't exist
-if ! systemctl list-units --full -all | grep -q "openplc.service"; then
+# Create systemd service for OpenPLC only if the runtime actually
+# installed — otherwise the service points at a server.py that
+# doesn't exist and will just crash-loop.
+if [[ -f "$OPENPLC_DIR/webserver/server.py" ]] && \
+   ! systemctl list-units --full -all | grep -q "openplc.service"; then
     sudo tee /etc/systemd/system/openplc.service > /dev/null << 'SVC'
 [Unit]
 Description=OpenPLC Runtime (Palanca Gas Plant Simulator)
@@ -143,7 +186,7 @@ SCADABR_DIR="/opt/scadabr"
 if [[ -d "$SCADABR_DIR" ]]; then
     log_ok "ScadaBR found at $SCADABR_DIR"
 else
-    log_info "ScadaBR requires manual installation — see INSTRUCTOR_LAB_GUIDE.md"
+    log_info "ScadaBR requires manual installation — see README.md > Troubleshooting"
     log_warn "ScadaBR not installed — Lab 4 (OPC-UA) will use the Python OPC-UA server fallback"
 fi
 
@@ -173,10 +216,12 @@ for script in palanca_modbus_read.py palanca_modbus_monitor.py palanca_opcua_bro
     fi
 done
 
-# Copy PLC program
-if [[ -f "$SCRIPT_DIR/../data/palanca_gen_start.st" ]]; then
-    cp "$SCRIPT_DIR/../data/palanca_gen_start.st" "$LAB_ROOT/"
+# Copy PLC program (lives alongside this script in Module_01/)
+if [[ -f "$SCRIPT_DIR/palanca_gen_start.st" ]]; then
+    cp "$SCRIPT_DIR/palanca_gen_start.st" "$LAB_ROOT/"
     log_ok "Copied palanca_gen_start.st"
+else
+    log_warn "palanca_gen_start.st not found in $SCRIPT_DIR — copy manually"
 fi
 
 # ── STEP 6: Generate baseline PCAP ───────────────────────────────
@@ -231,34 +276,33 @@ WSMACROS
 log_ok "Wireshark Palanca-OT profile installed at $WS_PROFILE_DIR"
 
 # ── STEP 8: Asset inventory CSV ───────────────────────────────────
+# Worksheet lives alongside this script in Module_01/, not in a
+# separate worksheets/ subdirectory.
 log_step "STEP 8: Asset inventory template"
 CSV_FILE="$LAB_ROOT/palanca_asset_inventory.csv"
 if [[ ! -f "$CSV_FILE" ]]; then
-    cp "$SCRIPT_DIR/../worksheets/palanca_asset_inventory.csv" "$LAB_ROOT/" 2>/dev/null || \
-    cat > "$CSV_FILE" << 'CSVEOF'
-Device Name,Purdue Level,Vendor / Model,IP Address,MAC Address,Protocol(s),Firmware Version,OS / Platform,Criticality,Last Patched,Physical Location,Notes
-PLC-Main-01,L1 — Basic Control,Siemens S7-1200,192.168.100.10,,,Modbus/TCP (Port 502),,Critical,,Electrical Room A,
-GEN1-RTU,L1 — Basic Control,GE Automation RTU 300,Serial only (RS-485),,Modbus RTU (Serial),,, Critical,,Generator Deck 1,
-PROTECT-REL-01,L1 — Basic Control,ABB REL670,192.168.100.30,,Modbus RTU,,IED Firmware v2.3,Critical,,Switchgear Room,
-VFD-PUMP-01,L1 — Basic Control,ABB ACS580,192.168.100.40,,Modbus/TCP (Port 502),,VFD FW v4.1,Important,,Pump Room B,
-SENSOR-TEMP-01,L0 — Field Device,Rosemount 3144P,HART (analog 4-20mA),,HART,,, Important,,Separator Deck,N/A — passive sensor; firmware update requires physical access
-SCADA-HMI-01,L2 — Supervisory,Windows 10 Pro (Dell OptiPlex),192.168.100.20,,Modbus/TCP; OPC-UA (Port 4840),,Windows 10 Pro 22H2,Critical,,Control Room,
-ENG-WS-01,L2 — Supervisory,Windows 10 Pro (HP EliteDesk),192.168.100.21,,Modbus/TCP; OPC-UA,,Windows 10 Pro 22H2,Important,,Control Room,
-HISTORIAN-01,L3 — Mfg Operations,Windows Server 2019 (Dell PowerEdge),192.168.150.20,,OPC-UA (Port 4840); SQL Server,,Windows Server 2019,Important,,Server Room,
-DMZ-GATEWAY-01,L3.5 — DMZ / Cell Zone,Ubuntu 22.04 LTS,192.168.150.10,,OPC-UA; Firewall (iptables),,Ubuntu 22.04.3 LTS,Critical,,Server Room,
-SWITCH-MAIN-01,L2 — Supervisory,Cisco Catalyst 2960X-24TS,192.168.100.1,,Ethernet (802.1Q VLAN); SNMP,,IOS 15.2(7)E4,Critical,,Electrical Room A,SPOF — no redundant switch deployed
-CSVEOF
-    log_ok "Asset inventory CSV created: $CSV_FILE"
+    if cp "$SCRIPT_DIR/palanca_asset_inventory.csv" "$LAB_ROOT/" 2>/dev/null; then
+        log_ok "Asset inventory CSV copied: $CSV_FILE"
+    else
+        log_warn "palanca_asset_inventory.csv not found in $SCRIPT_DIR — copy manually"
+    fi
 else
     log_ok "Asset inventory CSV already exists"
 fi
 
 # ── STEP 9: draw.io topology base XML ────────────────────────────
+# Same fix: file lives alongside this script, not in a topology/
+# subdirectory of the repo.
 log_step "STEP 9: draw.io topology base file"
 TOPOLOGY_FILE="$LAB_ROOT/topology/palanca_topology_base.xml"
 if [[ ! -f "$TOPOLOGY_FILE" ]]; then
-    cp "$SCRIPT_DIR/../topology/palanca_topology_base.xml" "$LAB_ROOT/topology/" 2>/dev/null || \
+    if cp "$SCRIPT_DIR/palanca_topology_base.xml" "$LAB_ROOT/topology/" 2>/dev/null; then
+        log_ok "Topology base XML copied: $TOPOLOGY_FILE"
+    else
         log_warn "Topology XML not found — will be generated separately"
+    fi
+else
+    log_ok "Topology base XML already exists"
 fi
 
 # ── STEP 10: Final verification ───────────────────────────────────
@@ -285,8 +329,18 @@ else
     log_warn "Port 4840 not listening — start OPC-UA server before Lab 4"
 fi
 
-# Python check
-python3 -c "import pymodbus, opcua, scapy; print('pymodbus', pymodbus.__version__, '| opcua', opcua.__version__)" 2>/dev/null && log_ok "Python OT libraries importable" || log_fail "Python library import failed"
+# Python check — import success is the pass/fail criterion; version
+# strings are best-effort only since not every OT library exposes
+# __version__ (opcua notably doesn't on all releases).
+if python3 -c "import pymodbus, opcua, scapy, pyshark" 2>/dev/null; then
+    PYVER=$(python3 -c "
+import pymodbus
+print('pymodbus', getattr(pymodbus, '__version__', 'unknown'))
+" 2>/dev/null)
+    log_ok "Python OT libraries importable ($PYVER)"
+else
+    log_fail "Python library import failed"
+fi
 
 # Wireshark
 which wireshark &>/dev/null && log_ok "Wireshark installed: $(wireshark --version 2>/dev/null | head -1)" || log_fail "Wireshark not found"
@@ -306,7 +360,7 @@ echo -e "${BLUE}═════════════════════�
 
 if [[ $FAIL -gt 0 ]]; then
     echo -e "${RED}Environment has failures — resolve before class${NC}"
-    echo -e "Check INSTRUCTOR_LAB_GUIDE.md → Section: Troubleshooting"
+    echo -e "Check README.md → Section: Troubleshooting"
     exit 1
 elif [[ $WARN -gt 0 ]]; then
     echo -e "${YELLOW}Environment has warnings — review before class${NC}"

@@ -30,16 +30,6 @@ import sys
 import os
 import struct
 import random
-from datetime import datetime, timedelta
-
-try:
-    from scapy.all import (
-        wrpcap, Ether, IP, TCP, Raw,
-        PcapWriter
-    )
-    SCAPY_OK = True
-except ImportError:
-    SCAPY_OK = False
 
 # ── Network addresses (matching module doc and asset inventory) ───
 HMI_IP    = "192.168.100.20"   # SCADA-HMI-01
@@ -154,23 +144,6 @@ def anomalous_fc(transaction_id: int, unit_id: int = 1) -> bytes:
     return mbap_header(transaction_id, len(pdu) + 1, unit_id) + pdu
 
 
-def make_tcp_packet(src_ip: str, dst_ip: str, sport: int, dport: int,
-                    payload: bytes, seq: int, ack: int,
-                    flags: str = "PA", ts: float = 0.0) -> object:
-    """Build a TCP packet carrying Modbus or OPC-UA payload."""
-    src_mac = MACS.get(src_ip, "00:11:22:33:44:55")
-    dst_mac = MACS.get(dst_ip, "00:11:22:33:44:66")
-    pkt = (
-        Ether(src=src_mac, dst=dst_mac) /
-        IP(src=src_ip, dst=dst_ip, ttl=64) /
-        TCP(sport=sport, dport=dport, flags=flags,
-            seq=seq, ack=ack) /
-        Raw(load=payload)
-    )
-    pkt.time = ts
-    return pkt
-
-
 def generate_pcap_raw(output_path: str):
     """Generate .pcap using raw struct bytes (no scapy required)."""
     import struct
@@ -225,6 +198,11 @@ def generate_pcap_raw(output_path: str):
     seq_h    = {HMI_IP: 100000, ENG_IP: 200000}
     seq_p    = 300000
     tid      = 1
+    # Real 1-based packet indices for the worksheet callouts below —
+    # computed from what actually gets written, not guessed constants
+    # (the file only ever contains ~150 packets, so a hardcoded "packet
+    # 312" can never exist in it).
+    markers  = {}
 
     def add_pkt(ts, src, dst, sport, dport, payload):
         nonlocal seq_p
@@ -239,6 +217,7 @@ def generate_pcap_raw(output_path: str):
         packets.append((ts_sec, ts_usec, frame))
         if src in seq_h:
             seq_h[src] += len(payload)
+        return len(packets)  # 1-based index, matches Wireshark's "No." column
 
     # Generate 60 seconds of traffic matching the lab worksheet target packets
     # Normal polling: HMI polls PLC every ~1 second
@@ -249,24 +228,28 @@ def generate_pcap_raw(output_path: str):
 
         # HMI → PLC: FC 0x03 Read Holding Regs 0-2 (freq, volt, power)
         req = fc03_request(tid, 0x0000, 3)
-        add_pkt(ts, HMI_IP, PLC_IP, random.randint(49152, 65535), 502, req)
+        idx = add_pkt(ts, HMI_IP, PLC_IP, random.randint(49152, 65535), 502, req)
         pkt_num += 1
+        markers.setdefault("fc03_read", idx)
 
-        # PLC → HMI: FC 0x03 Response
-        # Packet 103 gets alarm active registers
+        # PLC → HMI: FC 0x03 Response — alarm word goes active once
+        # pkt_num crosses 100 (mirrors the original alarm-scenario intent)
         regs = REGISTER_VALUES_ALARM if pkt_num >= 100 else REGISTER_VALUES
         resp = fc03_response(tid, regs, 0x0000, 3)
-        add_pkt(ts + 0.003, PLC_IP, HMI_IP, 502,
+        idx = add_pkt(ts + 0.003, PLC_IP, HMI_IP, 502,
                 random.randint(49152, 65535), resp)
         pkt_num += 1
         tid += 1
+        if regs is REGISTER_VALUES_ALARM:
+            markers.setdefault("fc03_alarm_resp", idx)
 
         # Every 5 seconds: HMI reads coils (status)
         if sec % 5 == 0:
             req = fc01_request(tid, 0, 5)
-            add_pkt(ts + 0.1, HMI_IP, PLC_IP,
+            idx = add_pkt(ts + 0.1, HMI_IP, PLC_IP,
                     random.randint(49152, 65535), 502, req)
             pkt_num += 1
+            markers.setdefault("fc01_read", idx)
             resp = fc01_response(tid, COIL_VALUES, 0, 5)
             add_pkt(ts + 0.103, PLC_IP, HMI_IP, 502,
                     random.randint(49152, 65535), resp)
@@ -276,21 +259,23 @@ def generate_pcap_raw(output_path: str):
         # Every 30 seconds: ENG writes setpoint (FC 0x10)
         if sec == 30:
             req = fc10_request(tid, 0x0003, [5000])  # setpoint 50.00 Hz
-            add_pkt(ts + 0.5, ENG_IP, PLC_IP,
+            idx = add_pkt(ts + 0.5, ENG_IP, PLC_IP,
                     random.randint(49152, 65535), 502, req)
             pkt_num += 1
+            markers["fc10_write"] = idx
             resp = fc10_response(tid, 0x0003, 1)
             add_pkt(ts + 0.503, PLC_IP, ENG_IP, 502,
                     random.randint(49152, 65535), resp)
             pkt_num += 1
             tid += 1
 
-        # Packet 312: anomalous FC 0x7F at ~155 seconds equivalent
+        # Anomalous FC 0x7F — undocumented function code exercise
         if sec == 55:
             anom = anomalous_fc(tid)
-            add_pkt(ts + 0.7, ENG_IP, PLC_IP,
+            idx = add_pkt(ts + 0.7, ENG_IP, PLC_IP,
                     random.randint(49152, 65535), 502, anom)
             pkt_num += 1
+            markers["anomalous"] = idx
             tid += 1
 
     # Write PCAP file
@@ -301,7 +286,7 @@ def generate_pcap_raw(output_path: str):
             ph = pcap_packet_header(ts_sec, ts_usec, len(frame), len(frame))
             f.write(ph + frame)
 
-    return len(packets)
+    return len(packets), markers
 
 
 def main():
@@ -313,17 +298,17 @@ def main():
     print(f"Generating Palanca baseline PCAP → {out}")
     print("Traffic pattern: 60s of normal SCADA polling + anomaly packet")
 
-    n_packets = generate_pcap_raw(out)
+    n_packets, markers = generate_pcap_raw(out)
 
     size_kb = os.path.getsize(out) / 1024
     print(f"Done. {n_packets} packets written ({size_kb:.1f} KB)")
     print()
-    print("Key packets for Lab 5 worksheet (approximate — verify in Wireshark):")
-    print("  ~Pkt 12:  FC 0x03 Read Holding Registers (HMI → PLC)")
-    print("  ~Pkt 47:  FC 0x01 Read Coils (HMI → PLC)")
-    print("  ~Pkt 103: FC 0x03 Response WITH alarm word active")
-    print("  ~Pkt 201: FC 0x10 Write Multiple Registers (ENG-WS → PLC)")
-    print("  ~Pkt 312: FC 0x7F ANOMALOUS function code (exercise)")
+    print("Key packets for Lab 5 worksheet (exact — this file's actual indices):")
+    print(f"  Pkt {markers['fc03_read']}:  FC 0x03 Read Holding Registers (HMI → PLC)")
+    print(f"  Pkt {markers['fc01_read']}:  FC 0x01 Read Coils (HMI → PLC)")
+    print(f"  Pkt {markers['fc03_alarm_resp']}: FC 0x03 Response WITH alarm word active")
+    print(f"  Pkt {markers['fc10_write']}: FC 0x10 Write Multiple Registers (ENG-WS → PLC)")
+    print(f"  Pkt {markers['anomalous']}: FC 0x7F ANOMALOUS function code (exercise)")
     print()
     print("Open in Wireshark with the Palanca-OT profile:")
     print(f"  wireshark {out}")

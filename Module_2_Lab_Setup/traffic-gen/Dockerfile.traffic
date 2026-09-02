@@ -1,0 +1,5 @@
+FROM python:3.11-slim
+RUN pip install --no-cache-dir pymodbus==3.6.9
+COPY traffic_generator.py /app/traffic_generator.py
+WORKDIR /app
+CMD ["python3", "traffic_generator.py"]

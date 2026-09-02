@@ -2,8 +2,8 @@
 # =============================================================================
 # OCEON LAB ENVIRONMENT SETUP — Module 0: Introduction to Energy Cyber Security
 # Case Study: Evolve Power (Palanca SCADA)
-# Target: Ubuntu 24.04 LTS (Noble Numbat) x86_64
-# Run as: sudo bash ces_lab_setup.sh   (never as sudo su then script)
+# Target: Ubuntu 24.04 LTS (Noble Numbat) or Kali Linux (rolling), x86_64
+# Run as: sudo bash oceon_m0_lab_setup.sh   (never as sudo su then script)
 # Idempotent: safe to re-run.
 # =============================================================================
 
@@ -47,11 +47,31 @@ log "Installing for user: $REAL_USER (home: $REAL_HOME)"
 sudo -u "$REAL_USER" mkdir -p "$LAB" "$DESKTOP"
 
 # =============================================================================
+# OS DETECTION
+# =============================================================================
+hdr "0a — OS detection"
+
+if [[ -r /etc/os-release ]]; then
+    OS_ID=$(. /etc/os-release && echo "$ID")
+    OS_PRETTY=$(. /etc/os-release && echo "$PRETTY_NAME")
+else
+    OS_ID="unknown"
+    OS_PRETTY="unknown"
+fi
+
+case "$OS_ID" in
+    ubuntu) ok "Detected: $OS_PRETTY" ;;
+    kali)   ok "Detected: $OS_PRETTY" ;;
+    *)      warn "Detected: $OS_PRETTY (untested — script assumes Debian/Ubuntu apt)" ;;
+esac
+
+# =============================================================================
 # NETWORK PRE-FLIGHT
 # =============================================================================
-hdr "0a — Network check"
+hdr "0b — Network check"
 
-REQUIRED_HOSTS=("github.com" "ppa.launchpadcontent.net" "ng.archive.ubuntu.com")
+REQUIRED_HOSTS=("github.com")
+[[ "$OS_ID" == "ubuntu" ]] && REQUIRED_HOSTS+=("ppa.launchpadcontent.net" "ng.archive.ubuntu.com")
 NET_OK=true
 for host in "${REQUIRED_HOSTS[@]}"; do
     if curl -sf --max-time 8 "https://$host" -o /dev/null 2>/dev/null || \
@@ -73,31 +93,63 @@ fi
 # =============================================================================
 # 0. SYSTEM BASE
 # =============================================================================
-hdr "0b — System update and base packages"
+hdr "0c — System update and base packages"
 
 apt-get update -qq
-apt-get install -y -qq \
-    curl wget git unzip tar build-essential \
-    net-tools iproute2 iputils-ping dnsutils \
-    python3 python3-pip python3-venv python3-dev \
-    libpcap-dev libssl-dev libffi-dev \
-    software-properties-common apt-transport-https \
-    ca-certificates gnupg lsb-release \
+
+# Installed one at a time (not as a single bulk 'apt-get install ... \'
+# command) so that one package with a drifted/missing name on a given
+# distro release — e.g. a hardcoded openjdk-17-jre-headless disappearing
+# from Kali rolling once that's no longer the default JRE — logs a
+# warning and gets skipped instead of aborting the entire script under
+# set -e before Wireshark/GNS3/OpenPLC/ScadaBR ever get installed.
+BASE_PKGS=(
+    curl wget git unzip tar build-essential
+    net-tools iproute2 iputils-ping dnsutils
+    python3 python3-pip python3-venv python3-dev
+    libpcap-dev libssl-dev libffi-dev
+    software-properties-common apt-transport-https
+    ca-certificates gnupg lsb-release
+    default-jre-headless   # ScadaBR/Tomcat dependency — portable metapackage
     jq tree htop vim
-ok "Base packages ready"
+)
+BASE_FAIL=0
+for pkg in "${BASE_PKGS[@]}"; do
+    if dpkg -s "$pkg" &>/dev/null; then
+        continue
+    elif ! apt-get install -y -qq "$pkg" 2>/dev/null; then
+        warn "  Package '$pkg' has no installation candidate — skipping"
+        BASE_FAIL=$((BASE_FAIL + 1))
+    fi
+done
+
+if [[ $BASE_FAIL -eq 0 ]]; then
+    ok "Base packages ready"
+else
+    warn "$BASE_FAIL base package(s) unavailable — continuing anyway (see warnings above)"
+fi
 
 # =============================================================================
 # 1. WIRESHARK
 # =============================================================================
 hdr "1 — Wireshark (Lab 1: Palanca SCADA Modbus/TCP capture)"
 
-if dpkg -s wireshark &>/dev/null 2>&1; then
+if dpkg -s wireshark &>/dev/null; then
     ok "Wireshark already installed ($(wireshark --version 2>/dev/null | head -1))"
 else
     echo "wireshark-common wireshark-common/install-setuid boolean true" | debconf-set-selections
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq wireshark tshark
+    ok "Wireshark installed"
+fi
+
+# Group membership is checked independently of the install branch above
+# so a re-run always repairs it, even if wireshark was already present
+# from before this script ever ran.
+if id -nG "$REAL_USER" | grep -qw wireshark; then
+    ok "$REAL_USER already in wireshark group"
+else
     usermod -aG wireshark "$REAL_USER"
-    ok "Wireshark installed — $REAL_USER added to wireshark group"
+    ok "$REAL_USER added to wireshark group (log out/in required)"
 fi
 
 # Evolve Power colour profile — light-background colours only so they
@@ -130,22 +182,63 @@ fi
 
 # =============================================================================
 # 3. GNS3
-# Note: GNS3 PPA targets Ubuntu 22.04 jammy. On Ubuntu 24.04 noble we must
-# explicitly pin the jammy pocket; otherwise add-apt-repository adds a noble
-# entry that does not exist and apt falls back to universe (older version) or
-# fails entirely.
+# The GNS3 PPA is Launchpad-only (Ubuntu) and only publishes for the
+# jammy (22.04) pocket. On Ubuntu 24.04 (noble), add-apt-repository
+# would otherwise write a sources entry for a pocket that doesn't
+# exist there, so we add it via the ppa: shorthand (which correctly
+# imports the signing key) and then repoint the resulting file at
+# jammy. On Kali (and anything else non-Ubuntu) the PPA doesn't apply
+# at all — we try GNS3 from the distro's own repos and fall back to a
+# manual-install pointer, without ever letting a failed repo add/
+# update kill the rest of this script (that used to happen under
+# set -e, since a bad third-party repo can make apt-get update fail).
 # =============================================================================
 hdr "3 — GNS3 (Lab 2: Purdue model topology)"
 
 if command -v gns3 &>/dev/null; then
     ok "GNS3 already installed"
+elif [[ "$OS_ID" == "ubuntu" ]]; then
+    GNS3_OK=true
+    # Use the ppa: shorthand so add-apt-repository imports the Launchpad
+    # signing key correctly (a hand-written "deb ..." line skips that and
+    # apt-get update would fail with NO_PUBKEY instead). It will write a
+    # sources file pointing at our real codename (e.g. noble) — the PPA
+    # doesn't publish for that, so repoint it at jammy afterward.
+    CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME")
+    add-apt-repository -y -n ppa:gns3/ppa &>/dev/null || GNS3_OK=false
+    if [[ "$GNS3_OK" == true && "$CODENAME" != "jammy" ]]; then
+        for f in /etc/apt/sources.list.d/*gns3*.list; do
+            [[ -f "$f" ]] && sed -i "s/\b${CODENAME}\b/jammy/g" "$f"
+        done
+    fi
+    apt-get update -qq || GNS3_OK=false
+
+    if [[ "$GNS3_OK" == true ]]; then
+        echo "ubridge ubridge/install-setuid boolean true" | debconf-set-selections
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gns3-server gns3-gui; then
+            usermod -aG ubridge,wireshark "$REAL_USER" 2>/dev/null || true
+            ok "GNS3 installed (from PPA, jammy pocket)"
+        else
+            warn "GNS3 package install failed. Install manually:"
+            warn "  sudo apt-get install gns3-server gns3-gui"
+        fi
+    else
+        warn "GNS3 PPA add/update failed — continuing without GNS3."
+        warn "Install manually once resolved: https://docs.gns3.com/docs/getting-started/installation/linux"
+    fi
+    # Re-sync the package index against whatever GNS3 left behind so a
+    # broken PPA entry doesn't cause every apt-get call below to warn.
+    apt-get update -qq || true
 else
-    add-apt-repository -y ppa:gns3/ppa &>/dev/null
-    apt-get update -qq
-    echo "ubridge ubridge/install-setuid boolean true" | debconf-set-selections
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gns3-server gns3-gui
-    usermod -aG ubridge,wireshark "$REAL_USER" 2>/dev/null || true
-    ok "GNS3 installed"
+    warn "Non-Ubuntu OS ($OS_PRETTY) — GNS3's PPA does not apply here."
+    if apt-cache show gns3-server &>/dev/null; then
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gns3-server gns3-gui \
+            && { usermod -aG ubridge,wireshark "$REAL_USER" 2>/dev/null || true; ok "GNS3 installed (distro repo)"; } \
+            || warn "GNS3 install failed — install manually: https://docs.gns3.com/docs/getting-started/installation/linux"
+    else
+        warn "GNS3 not available in this distro's repos."
+        warn "Install manually: https://docs.gns3.com/docs/getting-started/installation/linux"
+    fi
 fi
 
 # =============================================================================
@@ -627,6 +720,7 @@ check() {
 
 check "Wireshark"                   command -v wireshark
 check "tshark"                      command -v tshark
+check "Java (ScadaBR/Tomcat dep.)"  command -v java
 check "Evolve-Power colour profile" test -f "$EP_PROFILE/colorfilters"
 check "Nmap"                        command -v nmap
 check "GNS3 server"                 command -v gns3server
@@ -663,17 +757,25 @@ STEP 1: LOG OUT AND BACK IN
 
 STEP 2: INSTALL OPENPLC RUNTIME (one-time, ~10 min, interactive)
   cd ~/oceon-lab/OpenPLC_v3
-  sudo bash install.sh linux
+  sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux
   Web UI: http://localhost:8080   credentials: openplc / openplc
   REST API: https://localhost:8443 (accept the self-signed cert warning)
   Note: after install, start the service with: sudo systemctl start openplc
+  Note: the CMAKE_POLICY_VERSION_MINIMUM=3.5 above works around OpenPLC's
+        bundled OpenDNP3 failing to configure under CMake 4.x (Kali
+        rolling, and eventually newer Ubuntu) — "sudo bash install.sh
+        linux" alone will fail on those with a CMake policy error.
 
 STEP 3: LOAD THE EVOLVE POWER PLC PROGRAM
   - Open http://localhost:8080
   - Programs -> Upload New Program
   - Select: ~/oceon-lab/evolve-power-programs/palanca_motor_feeder.st
   - Click Compile, then Start PLC
-  - Confirm on Monitoring tab: BREAKER_CLOSE_CMD = TRUE
+  - Confirm it's running: venv/bin/python3 ~/oceon-lab/palanca_poll.py
+    Look for BREAKER_CLOSE_CMD = ON in the Coils / Outputs table.
+    (The web UI's Monitoring tab only shows points you add manually
+    there — %QX0.0 for BREAKER_CLOSE_CMD — so polling directly is
+    the quicker check, and it's the same tool Lab 1 uses next.)
 
 STEP 4: START SCADABR (Palanca SCADA HMI)
   ScadaBR auto-starts on reboot via crontab (root crontab, @reboot).

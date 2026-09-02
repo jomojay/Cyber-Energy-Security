@@ -127,7 +127,6 @@ def main():
     try:
         client.connect()
         print(f"  Connected successfully to {OPC_ENDPOINT}")
-        print(f"  Session ID: {client.uaclient._uasocket}")
     except Exception as e:
         print(f"  CONNECTION FAILED: {e}")
         print()

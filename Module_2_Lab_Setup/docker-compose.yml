@@ -1,0 +1,183 @@
+# ============================================================================
+# Palanca Gas Plant — Module 2 Lab Environment
+# Network Mapping & Asset Discovery — Cyber-Energy Security Programme
+# ============================================================================
+# Topology deliberately reproduces the flat Control/Supervisory network
+# documented in Module 2 Section 2.5.3 (the "Critical Finding" trainees
+# must discover in Lab Day 5): scada-hmi and eng-ws sit on BOTH the
+# control and supervisory subnets, exactly like the real Palanca network.
+# ============================================================================
+
+# Pinned so the stack's network/container names (e.g. palanca-lab_ot_control,
+# referenced by setup.sh) are stable regardless of what directory this repo
+# is checked out into — without this, Compose derives the project name from
+# the checkout folder name instead (e.g. Module_2_Lab_Setup -> a different
+# prefix), and setup.sh's hardcoded network lookup would fail.
+name: palanca-lab
+
+networks:
+  # Each network pins its gateway off .1 (Docker's default gateway pick
+  # when none is given) onto .254 instead — sw-core-01 is deliberately
+  # assigned .1 on both ot_control and ot_supervisory to match the
+  # README's device map, and without this it collides with Docker's
+  # own auto-assigned gateway address and the container never starts
+  # ("Address already in use").
+  ot_control:       # Purdue Level 1 — PLCs, RTUs, relays, VFD, core switch
+    driver: bridge
+    ipam:
+      config: [{subnet: 192.168.1.0/24, gateway: 192.168.1.254}]
+  ot_supervisory:    # Purdue Level 2 — HMIs, engineering workstation
+    driver: bridge
+    ipam:
+      config: [{subnet: 192.168.2.0/24, gateway: 192.168.2.254}]
+  ot_dmz:            # Purdue Level 3 — historian / DMZ
+    driver: bridge
+    ipam:
+      config: [{subnet: 192.168.3.0/24, gateway: 192.168.3.254}]
+
+services:
+
+  plc-main-01:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: plc-main-01
+    hostname: plc-main-01
+    environment:
+      DEVICE_NAME: PLC-MAIN-01
+      DEVICE_VENDOR: "Siemens S7-1200"
+      NUM_REGISTERS: "50"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.10}
+    restart: unless-stopped
+
+  plc-aux-01:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: plc-aux-01
+    hostname: plc-aux-01
+    environment:
+      DEVICE_NAME: PLC-AUX-01
+      DEVICE_VENDOR: "Siemens S7-1200"
+      NUM_REGISTERS: "50"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.11}
+    restart: unless-stopped
+
+  gen1-rtu:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: gen1-rtu
+    hostname: gen1-rtu
+    environment:
+      DEVICE_NAME: GEN1-RTU
+      DEVICE_VENDOR: "GE Automation"
+      NUM_REGISTERS: "30"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.20}
+    restart: unless-stopped
+
+  gen2-rtu:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: gen2-rtu
+    hostname: gen2-rtu
+    environment:
+      DEVICE_NAME: GEN2-RTU
+      DEVICE_VENDOR: "GE Automation"
+      NUM_REGISTERS: "30"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.21}
+    restart: unless-stopped
+
+  prot-rel-01:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: prot-rel-01
+    hostname: prot-rel-01
+    environment:
+      DEVICE_NAME: PROT-REL-01
+      DEVICE_VENDOR: "ABB REL670"
+      NUM_REGISTERS: "20"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.30}
+    restart: unless-stopped
+
+  prot-rel-02:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: prot-rel-02
+    hostname: prot-rel-02
+    environment:
+      DEVICE_NAME: PROT-REL-02
+      DEVICE_VENDOR: "ABB REL670"
+      NUM_REGISTERS: "20"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.31}
+    restart: unless-stopped
+
+  vfd-pump-01:
+    build: {context: ./sims, dockerfile: Dockerfile.modbus}
+    container_name: vfd-pump-01
+    hostname: vfd-pump-01
+    environment:
+      DEVICE_NAME: VFD-PUMP-01
+      DEVICE_VENDOR: "ABB ACS580"
+      NUM_REGISTERS: "20"
+    networks:
+      ot_control: {ipv4_address: 192.168.1.40}
+    restart: unless-stopped
+
+  sw-core-01:
+    build: {context: ./switch, dockerfile: Dockerfile.switch}
+    container_name: sw-core-01
+    hostname: sw-core-01
+    networks:
+      ot_control: {ipv4_address: 192.168.1.1}
+      ot_supervisory: {ipv4_address: 192.168.2.1}
+    restart: unless-stopped
+
+  scada-hmi-01:
+    build: {context: ./hmi, dockerfile: Dockerfile.hmi}
+    container_name: scada-hmi-01
+    hostname: scada-hmi-01
+    environment:
+      DEVICE_NAME: SCADA-HMI-01
+    networks:
+      ot_supervisory: {ipv4_address: 192.168.2.10}
+      ot_control: {ipv4_address: 192.168.1.110}   # flat-network finding — see Section 2.5.3
+    restart: unless-stopped
+
+  scada-hmi-02:
+    build: {context: ./hmi, dockerfile: Dockerfile.hmi}
+    container_name: scada-hmi-02
+    hostname: scada-hmi-02
+    environment:
+      DEVICE_NAME: SCADA-HMI-02
+    networks:
+      ot_supervisory: {ipv4_address: 192.168.2.11}
+      ot_control: {ipv4_address: 192.168.1.111}   # flat-network finding — see Section 2.5.3
+    restart: unless-stopped
+
+  historian-01:
+    image: python:3.11-slim
+    container_name: historian-01
+    hostname: historian-01
+    command: ["python3", "-m", "http.server", "80"]
+    networks:
+      ot_dmz: {ipv4_address: 192.168.3.10}
+      ot_supervisory: {ipv4_address: 192.168.2.30}
+    restart: unless-stopped
+
+  traffic-gen:
+    build: {context: ./traffic-gen, dockerfile: Dockerfile.traffic}
+    container_name: traffic-gen
+    networks:
+      ot_control: {ipv4_address: 192.168.1.200}
+    depends_on: [plc-main-01, plc-aux-01, gen1-rtu, gen2-rtu, prot-rel-01, prot-rel-02, vfd-pump-01]
+    restart: unless-stopped
+
+  eng-ws-01:
+    build: {context: ./eng-ws, dockerfile: Dockerfile.engws}
+    container_name: eng-ws-01
+    hostname: eng-ws-01
+    cap_add: [NET_RAW, NET_ADMIN]        # required for tshark/tcpdump capture
+    networks:
+      ot_supervisory: {ipv4_address: 192.168.2.20}
+      ot_control: {ipv4_address: 192.168.1.120}   # flat-network finding — see Section 2.5.3
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
