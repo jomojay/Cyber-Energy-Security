@@ -18,7 +18,9 @@ import collections
 from datetime import datetime
 
 # ── Configuration ─────────────────────────────────────────────────
-PLC_HOST = "192.168.100.10"
+PLC_HOST = "127.0.0.1"   # OpenPLC runs on this host (192.168.100.10 is
+                          # the plant's documented/virtual address — this
+                          # module doesn't actually build that network)
 PLC_PORT = 502
 UNIT_ID  = 1
 

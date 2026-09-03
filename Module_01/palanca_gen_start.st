@@ -24,7 +24,7 @@
 
    Holding Registers (Read/Write):
      %MW0    = GEN1_FREQUENCY_x100   Reg 40001  — e.g. 5000 = 50.00 Hz
-     %MW1    = GEN1_VOLTAGE_x10      Reg 40002  — e.g. 55000 = 5500.0 V
+     %MW1    = GEN1_VOLTAGE_x10      Reg 40002  — e.g. 55000 = 5500.0 V (UINT)
      %MW2    = GEN1_OUTPUT_KW        Reg 40003  — e.g. 8500 = 8500 kW
      %MW3    = GEN1_FREQ_SETPOINT    Reg 40004  — operator setpoint (5000 = 50.00)
      %MW4    = GEN2_FREQUENCY_x100   Reg 40005
@@ -32,8 +32,8 @@
      %MW6    = GEN2_OUTPUT_KW        Reg 40007
      %MW7    = STARTUP_DELAY_SEC     Reg 40008  — seconds (default 5)
      %MW8    = FEEDER1_CURRENT_x10   Reg 40009  — e.g. 2340 = 234.0 A
-     %MW9    = FEEDER1_VOLTAGE_x10   Reg 40010  — e.g. 110000 = 11000 V
-     %MW10   = SYS_ALARM_WORD        Reg 40011  — bitmask of active alarms
+     %MW9    = FEEDER1_VOLTAGE_x10   Reg 40010  — e.g. 4000 = 400.0 V (UINT)
+     %MW10   = SYS_ALARM_WORD        Reg 40011  — bitmask of active alarms (WORD)
      %MW11   = SCAN_CYCLE_MS         Reg 40012  — actual scan cycle time (ms)
 
    Input Registers (Read Only):
@@ -44,40 +44,66 @@
 
 PROGRAM palanca_gen_start
 
+(* I/O-mapped variables are declared AT their Modbus address below —
+   matiec only accepts a bare %QX/%IX/%MW/%IW token as the target of an
+   AT declaration, never as an operand inside an executable statement
+   (that's what the old ":= %QX0.0"-style copy statements in the body
+   were rejected for), AND it requires every AT-located declaration to
+   sit in a VAR block of its own — mixing a located and a plain
+   declaration in the same VAR/END_VAR, in either order, also fails to
+   parse. Hence the split into two VAR blocks below: all located
+   variables first, then everything else. Assigning to an AT variable
+   anywhere in the body writes straight through to the Modbus-exposed
+   memory — no separate mapping step needed. *)
+
 VAR
-    (* Generator 1 states *)
-    GEN1_START_CMD      : BOOL;
-    GEN1_STOP_CMD       : BOOL;
-    GEN1_CB_CLOSE_CMD   : BOOL;
-    GEN1_ALARM_ACK      : BOOL;
-    GEN1_RUNNING        : BOOL;
-    GEN1_FAULT          : BOOL;
-    GEN1_CB_CLOSED      : BOOL;
+    (* Generator 1 states — coils are read/write (operator commands via
+       Modbus FC 0x05/0x0F); discrete inputs are read-only to Modbus and
+       written here to simulate sensor state (FC 0x02) *)
+    GEN1_START_CMD      AT %QX0.0 : BOOL;
+    GEN1_STOP_CMD       AT %QX0.1 : BOOL;
+    GEN1_CB_CLOSE_CMD   AT %QX0.2 : BOOL;
+    GEN1_ALARM_ACK      AT %QX0.3 : BOOL;
+    GEN1_RUNNING        AT %IX0.0 : BOOL;
+    GEN1_FAULT          AT %IX0.1 : BOOL;
+    GEN1_CB_CLOSED      AT %IX0.2 : BOOL;
 
     (* Generator 2 states *)
-    GEN2_START_CMD      : BOOL;
-    GEN2_RUNNING        : BOOL;
+    GEN2_START_CMD      AT %QX0.4 : BOOL;
+    GEN2_RUNNING        AT %IX0.3 : BOOL;
 
     (* Feeder 1 states *)
-    FEEDER1_CB_CLOSED   : BOOL;
-    FEEDER1_CB_OPEN_CMD : BOOL;
-    FEEDER1_CB_CLOSE_CMD: BOOL;
+    FEEDER1_CB_CLOSED    AT %IX0.4 : BOOL;
+    FEEDER1_CB_OPEN_CMD  AT %QX0.5 : BOOL;
+    FEEDER1_CB_CLOSE_CMD AT %QX0.6 : BOOL;
 
-    (* Measurement registers *)
-    GEN1_FREQUENCY_x100 : INT := 5000;   (* 50.00 Hz at steady state *)
-    GEN1_VOLTAGE_x10    : INT := 55000;  (* 5500.0 V *)
-    GEN1_OUTPUT_KW      : INT := 8500;   (* 8500 kW *)
-    GEN1_FREQ_SETPOINT  : INT := 5000;   (* 50.00 Hz target *)
-    GEN2_FREQUENCY_x100 : INT := 0;
-    GEN2_VOLTAGE_x10    : INT := 0;
-    GEN2_OUTPUT_KW      : INT := 0;
-    FEEDER1_CURRENT_x10 : INT := 2340;   (* 234.0 A *)
-    FEEDER1_VOLTAGE_x10 : INT := 110000; (* 11000.0 V — secondary side *)
-    SYS_ALARM_WORD      : INT := 0;
-    SCAN_CYCLE_MS       : INT := 10;     (* Nominal 10 ms *)
+    (* Measurement registers — holding registers, Modbus FC 0x03/0x06 *)
+    GEN1_FREQUENCY_x100 AT %MW0  : INT := 5000;   (* 50.00 Hz at steady state *)
+    GEN1_VOLTAGE_x10    AT %MW1  : UINT := 55000; (* 5500.0 V — UINT: 55000 exceeds INT's 32767 max *)
+    GEN1_OUTPUT_KW      AT %MW2  : INT := 8500;   (* 8500 kW *)
+    GEN1_FREQ_SETPOINT  AT %MW3  : INT := 5000;   (* 50.00 Hz target *)
+    GEN2_FREQUENCY_x100 AT %MW4  : INT := 0;
+    GEN2_VOLTAGE_x10    AT %MW5  : INT := 0;
+    GEN2_OUTPUT_KW      AT %MW6  : INT := 0;
+    STARTUP_DELAY_SEC   AT %MW7  : INT := 5;      (* <<< LAB 2 TASK: change to 10 >>> *)
+    FEEDER1_CURRENT_x10 AT %MW8  : INT := 2340;   (* 234.0 A *)
+    (* 400.0 V secondary — the original 110000 (11000.0 V) can't fit in
+       any 16-bit register type (max 65535 even unsigned); adjust if your
+       plant model calls for a different feeder secondary voltage *)
+    FEEDER1_VOLTAGE_x10 AT %MW9  : UINT := 4000;
+    SYS_ALARM_WORD      AT %MW10 : WORD := 0;     (* WORD, not INT: bitmask, used with OR below *)
+    ScanCounterReg      AT %MW11 : INT := 0;      (* free-running scan counter, see ScanCount below *)
+
+    (* Input registers — simulated measurements, Modbus FC 0x04 (read-only) *)
+    GEN1_FREQ_ACTUAL    AT %IW0  : INT := 0;
+    GEN1_VOLT_ACTUAL    AT %IW1  : UINT := 0;  (* UINT to match GEN1_VOLTAGE_x10 *)
+    GEN1_LOAD_ACTUAL    AT %IW2  : INT := 0;
+END_VAR
+
+VAR
+    SCAN_CYCLE_MS       : INT := 10;     (* Nominal 10 ms — not currently wired to a register *)
 
     (* Startup sequence timer *)
-    STARTUP_DELAY_SEC   : INT := 5;      (* <<< LAB 2 TASK: change to 10 >>> *)
     StartupTimer        : TON;
     StartupTimerActive  : BOOL := FALSE;
 
@@ -100,23 +126,6 @@ VAR
     ScanCount           : DINT := 0;
 END_VAR
 
-(* ── Map I/O variables to Modbus addresses ─────────────────────── *)
-(* Coil outputs — operators write these via Modbus FC 0x05/0x0F *)
-GEN1_START_CMD      := %QX0.0;
-GEN1_STOP_CMD       := %QX0.1;
-GEN1_CB_CLOSE_CMD   := %QX0.2;
-GEN1_ALARM_ACK      := %QX0.3;
-GEN2_START_CMD      := %QX0.4;
-FEEDER1_CB_OPEN_CMD := %QX0.5;
-FEEDER1_CB_CLOSE_CMD:= %QX0.6;
-
-(* Discrete inputs — SCADA reads these via Modbus FC 0x02 *)
-%IX0.0 := GEN1_RUNNING;
-%IX0.1 := GEN1_FAULT;
-%IX0.2 := GEN1_CB_CLOSED;
-%IX0.3 := GEN2_RUNNING;
-%IX0.4 := FEEDER1_CB_CLOSED;
-
 (* ── Generator 1 state machine ──────────────────────────────────── *)
 CASE GenState OF
     0: (* STOPPED *)
@@ -138,8 +147,12 @@ CASE GenState OF
         StartupTimer(IN := StartupTimerActive,
                      PT := T#1s * STARTUP_DELAY_SEC);
 
-        (* Ramp frequency from 0 to 5000 (50.00 Hz) over startup period *)
-        FreqRamp := TRUNC(5000.0 * (INT_TO_REAL(StartupTimer.ET) / (INT_TO_REAL(STARTUP_DELAY_SEC) * 1000.0)));
+        (* Ramp frequency from 0 to 5000 (50.00 Hz) over startup period.
+           StartupTimer.ET is TIME, not INT — TIME_TO_REAL gives seconds,
+           which already matches STARTUP_DELAY_SEC's unit, so no *1000
+           scaling is needed (the original INT_TO_REAL(...) here didn't
+           compile: ET isn't an INT). *)
+        FreqRamp := TRUNC(5000.0 * (TIME_TO_REAL(StartupTimer.ET) / INT_TO_REAL(STARTUP_DELAY_SEC)));
         GEN1_FREQUENCY_x100 := FreqRamp;
         GEN1_VOLTAGE_x10    := TRUNC(55000.0 * (INT_TO_REAL(FreqRamp) / 5000.0));
 
@@ -229,27 +242,22 @@ CASE GenState OF
 
 END_CASE;
 
-(* ── Write holding registers (Modbus FC 0x03 target) ─────────────── *)
-%MW0  := GEN1_FREQUENCY_x100;
-%MW1  := GEN1_VOLTAGE_x10;
-%MW2  := GEN1_OUTPUT_KW;
-%MW3  := GEN1_FREQ_SETPOINT;
-%MW4  := GEN2_FREQUENCY_x100;
-%MW5  := GEN2_VOLTAGE_x10;
-%MW6  := GEN2_OUTPUT_KW;
-%MW7  := STARTUP_DELAY_SEC;
-%MW8  := FEEDER1_CURRENT_x10;
-%MW9  := FEEDER1_VOLTAGE_x10;
-%MW10 := SYS_ALARM_WORD;
+(* GEN1_FREQUENCY_x100, GEN1_VOLTAGE_x10, GEN1_OUTPUT_KW, GEN1_FREQ_SETPOINT,
+   GEN2_*, FEEDER1_*, and SYS_ALARM_WORD are all declared AT their %MW
+   register above, so the state machine's own assignments to them
+   already updated those registers directly — no separate write-out
+   step needed here. *)
 
 (* Scan cycle counter — increments every scan *)
-ScanCount := ScanCount + 1;
-%MW11 := DINT_TO_INT(ScanCount MOD 10000);
+ScanCount     := ScanCount + 1;
+ScanCounterReg := DINT_TO_INT(ScanCount MOD 10000);
 
-(* Write input registers (read-only, actual measurements — FC 0x04) *)
-%IW0 := GEN1_FREQUENCY_x100;
-%IW1 := GEN1_VOLTAGE_x10;
-%IW2 := GEN1_OUTPUT_KW;
+(* Input registers (read-only to Modbus, FC 0x04) mirror the current
+   measurements for masters that read via input registers instead of
+   holding registers *)
+GEN1_FREQ_ACTUAL := GEN1_FREQUENCY_x100;
+GEN1_VOLT_ACTUAL := GEN1_VOLTAGE_x10;
+GEN1_LOAD_ACTUAL := GEN1_OUTPUT_KW;
 
 END_PROGRAM
 

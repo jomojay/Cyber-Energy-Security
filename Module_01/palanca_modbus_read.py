@@ -35,7 +35,12 @@ import time
 from datetime import datetime
 
 # ── Connection parameters ─────────────────────────────────────────
-PLC_HOST = "192.168.100.10"   # Virtual Palanca PLC (OpenPLC)
+PLC_HOST = "127.0.0.1"        # OpenPLC runs on this host (192.168.100.10
+                               # is the plant's documented/virtual address
+                               # from the asset inventory and topology
+                               # worksheet — this module doesn't actually
+                               # build that network, OpenPLC just listens
+                               # on localhost)
 PLC_PORT = 502                 # Modbus/TCP standard port
 UNIT_ID  = 1                   # Slave address for PLC-Main-01
 

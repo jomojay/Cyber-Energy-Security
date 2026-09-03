@@ -9,6 +9,12 @@
 # ================================================================
 set -euo pipefail
 
+# Captured before anything below ever cd's away (Step 3's OpenPLC clone
+# changes into /tmp and doesn't come back) — computing this later, from
+# a relative $0 like "setup_lab_env.sh", would resolve against whatever
+# the cwd happens to be at that point instead of this script's own folder.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
@@ -67,7 +73,7 @@ export DEBIAN_FRONTEND=noninteractive
 PKGS=(
     python3 python3-pip python3-venv
     nmap wireshark tshark
-    net-tools curl wget git
+    net-tools curl wget git unzip
     build-essential cmake pkg-config
     bison flex autoconf
     libpcap-dev libssl-dev sqlite3 libsqlite3-dev libboost-all-dev
@@ -118,56 +124,75 @@ done
 log_step "STEP 3: OpenPLC Runtime (Modbus server)"
 OPENPLC_DIR="/opt/OpenPLC_v3"
 
-if [[ -d "$OPENPLC_DIR" ]]; then
+# OpenPLC's own install.sh treats the directory it's run FROM as its
+# permanent home: it hardcodes WorkingDirectory=$PWD into the systemd
+# unit it creates itself, and bakes that same path into the
+# start_openplc.sh launcher it generates. It does not "install"
+# anywhere else — the clone location IS the install. So this has to
+# clone straight into /opt/OpenPLC_v3 and run install.sh from there.
+# (An earlier version of this script staged the clone in /tmp instead
+# and checked for /opt/OpenPLC_v3 here for idempotency — since nothing
+# ever created that path, every re-run wiped and rebuilt /tmp/OpenPLC_v3
+# out from under the still-running service, corrupting its database —
+# "Error Opening the DB" after login was the symptom.)
+if [[ -f "$OPENPLC_DIR/start_openplc.sh" ]] && systemctl list-unit-files 2>/dev/null | grep -q '^openplc\.service'; then
     log_ok "OpenPLC found at $OPENPLC_DIR"
-else
-    log_info "Installing OpenPLC Runtime..."
-    # Remove any stale clone from a prior failed run so this stays
-    # idempotent — 'git clone' refuses to clone into a non-empty dir.
-    rm -rf /tmp/OpenPLC_v3
-    cd /tmp
-    if git clone https://github.com/thiagoralves/OpenPLC_v3.git --depth=1 -q; then
-        cd /tmp/OpenPLC_v3
-        # OpenPLC vendors an old OpenDNP3 CMakeLists.txt that current
-        # CMake (4.x, shipped by Kali rolling and eventually newer
-        # Ubuntu) refuses to configure without an explicit policy
-        # floor — this env var is the workaround install.sh's own
-        # cmake error message points at.
-        sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux 2>/dev/null && log_ok "OpenPLC installed" || log_fail "OpenPLC install script failed"
-        cd /tmp
-    else
-        log_fail "OpenPLC git clone failed — check internet connectivity"
-    fi
-fi
-
-# Create systemd service for OpenPLC only if the runtime actually
-# installed — otherwise the service points at a server.py that
-# doesn't exist and will just crash-loop.
-if [[ -f "$OPENPLC_DIR/webserver/server.py" ]] && \
-   ! systemctl list-units --full -all | grep -q "openplc.service"; then
-    sudo tee /etc/systemd/system/openplc.service > /dev/null << 'SVC'
+elif [[ -f "$OPENPLC_DIR/start_openplc.sh" ]]; then
+    # The build is already there but the systemd unit isn't — e.g.
+    # teardown.sh removed the unit (it always does, to prevent collisions
+    # with Introductory_Module's OpenPLC install) while intentionally
+    # leaving /opt/OpenPLC_v3 itself in place. Recreate just the unit —
+    # identical to what OpenPLC's own install.sh writes — rather than
+    # paying for a full rebuild.
+    log_info "OpenPLC found at $OPENPLC_DIR but its systemd unit is missing — recreating it..."
+    sudo tee /usr/lib/systemd/system/openplc.service > /dev/null <<SVC
 [Unit]
-Description=OpenPLC Runtime (Palanca Gas Plant Simulator)
+Description=OpenPLC Service
 After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/OpenPLC_v3/webserver
-ExecStart=/usr/bin/python3 /opt/OpenPLC_v3/webserver/server.py
 Restart=always
-RestartSec=5
+RestartSec=1
+User=root
+Group=root
+WorkingDirectory=$OPENPLC_DIR
+ExecStart=$OPENPLC_DIR/start_openplc.sh
 
 [Install]
 WantedBy=multi-user.target
 SVC
     sudo systemctl daemon-reload
     sudo systemctl enable openplc.service 2>/dev/null || true
-    log_ok "OpenPLC systemd service created"
+    log_ok "Recreated OpenPLC systemd unit pointing at $OPENPLC_DIR"
+else
+    log_info "Installing OpenPLC Runtime..."
+    # Clean up any partial install from an interrupted prior run —
+    # 'git clone' refuses to clone into a non-empty directory.
+    sudo rm -rf "$OPENPLC_DIR"
+    if sudo git clone https://github.com/thiagoralves/OpenPLC_v3.git --depth=1 -q "$OPENPLC_DIR"; then
+        cd "$OPENPLC_DIR"
+        # OpenPLC vendors an old OpenDNP3 CMakeLists.txt that current
+        # CMake (4.x, shipped by Kali rolling and eventually newer
+        # Ubuntu) refuses to configure without an explicit policy
+        # floor — this env var is the workaround install.sh's own
+        # cmake error message points at.
+        sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux 2>/dev/null && log_ok "OpenPLC installed" || log_fail "OpenPLC install script failed"
+        cd - > /dev/null
+    else
+        log_fail "OpenPLC git clone failed — check internet connectivity"
+    fi
 fi
 
-# Try to start OpenPLC
-sudo systemctl start openplc.service 2>/dev/null || true
+# install.sh (above) already created and enabled its own systemd unit
+# (openplc.service, at /lib/systemd/system) pointing at $OPENPLC_DIR —
+# nothing to create here. Use 'restart', not 'start': openplc.service is
+# a single system-wide unit name also used by Introductory_Module's manual
+# OpenPLC install, and 'start' is a no-op against an already-active unit —
+# if some earlier install (this module's or the other one's) left it
+# running, 'start' would leave that stale process serving requests forever
+# instead of the version just built here. 'restart' always relaunches.
+sudo systemctl restart openplc.service 2>/dev/null || true
 sleep 3
 
 if ss -tlnp 2>/dev/null | grep -q ':502 '; then
@@ -179,21 +204,89 @@ else
     log_warn "OpenPLC not yet responding — may need manual start: sudo systemctl start openplc"
 fi
 
-# ── STEP 4: ScadaBR (OPC-UA server) ──────────────────────────────
-log_step "STEP 4: ScadaBR (OPC-UA server)"
-SCADABR_DIR="/opt/scadabr"
+# ── STEP 4: ScadaBR (Palanca SCADA HMI) ───────────────────────────
+# Ported from Introductory_Module/oceon_m0_lab_setup.sh, adapted for
+# this script's no-sudo invocation: the whole script runs as the
+# trainee, so root is requested per-command instead of once up front.
+log_step "STEP 4: ScadaBR (Palanca SCADA HMI)"
+SCADABR_DIR="$LAB_ROOT/scadabr"
+SCADABR_INSTALL="/opt/ScadaBR"
+SCADABR_URL="https://github.com/ScadaBR/ScadaBR/releases/download/v1.2/ScadaBR_Setup_Linux.zip"
+SCADABR_TOMCAT="$SCADABR_INSTALL/tomcat/bin/startup.sh"
 
-if [[ -d "$SCADABR_DIR" ]]; then
-    log_ok "ScadaBR found at $SCADABR_DIR"
+if [[ -f "$SCADABR_TOMCAT" ]]; then
+    log_ok "ScadaBR already installed at $SCADABR_INSTALL"
 else
-    log_info "ScadaBR requires manual installation — see README.md > Troubleshooting"
-    log_warn "ScadaBR not installed — Lab 4 (OPC-UA) will use the Python OPC-UA server fallback"
+    if [[ ! -f "$SCADABR_DIR/install_scadabr.sh" ]]; then
+        mkdir -p "$SCADABR_DIR"
+        log_info "Downloading ScadaBR 1.2 Linux installer..."
+        if wget -q --timeout=120 "$SCADABR_URL" -O /tmp/ScadaBR_Linux.zip; then
+            log_info "Extracting..."
+            unzip -q /tmp/ScadaBR_Linux.zip -d /tmp/scadabr_extract
+            INNER=$(find /tmp/scadabr_extract -maxdepth 1 -mindepth 1 -type d | head -1)
+            SRC=$( [[ -n "$INNER" ]] && echo "$INNER" || echo "/tmp/scadabr_extract" )
+            cp -r "$SRC"/. "$SCADABR_DIR"/
+            rm -rf /tmp/ScadaBR_Linux.zip /tmp/scadabr_extract
+            chmod +x "$SCADABR_DIR"/*.sh 2>/dev/null || true
+            log_ok "ScadaBR 1.2 extracted to $SCADABR_DIR"
+        else
+            log_fail "ScadaBR download failed:" \
+                     "wget '$SCADABR_URL' -O /tmp/ScadaBR_Linux.zip"
+        fi
+    else
+        log_ok "ScadaBR installer already extracted at $SCADABR_DIR"
+    fi
+
+    if [[ -f "$SCADABR_DIR/install_scadabr.sh" ]]; then
+        # Guard: installer aborts if /opt/ScadaBR exists even if empty
+        if [[ -d "$SCADABR_INSTALL" && -z "$(ls -A "$SCADABR_INSTALL" 2>/dev/null)" ]]; then
+            log_info "Removing empty $SCADABR_INSTALL from prior failed run..."
+            sudo rm -rf "$SCADABR_INSTALL"
+        fi
+
+        log_info "Running ScadaBR installer in silent mode (requires sudo)..."
+        cd "$SCADABR_DIR"
+        # silent mode skips config prompts; echo 'n' suppresses the residual
+        # "Launch now?" prompt caused by a $1 scoping bug in finishInstall()
+        echo 'n' | sudo bash install_scadabr.sh silent
+        cd - > /dev/null
+
+        if [[ -f "$SCADABR_TOMCAT" ]]; then
+            log_ok "ScadaBR installed at $SCADABR_INSTALL"
+
+            # CRITICAL: ScadaBR silent mode defaults to port 8080, which
+            # conflicts with OpenPLC's web UI. Patch to 9090 immediately.
+            SCADABR_SERVER_XML="$SCADABR_INSTALL/tomcat/conf/server.xml"
+            if sudo grep -q 'port="8080"' "$SCADABR_SERVER_XML" 2>/dev/null; then
+                sudo sed -i 's/port="8080"/port="9090"/' "$SCADABR_SERVER_XML"
+                log_ok "ScadaBR Tomcat patched to port 9090 (avoids clash with OpenPLC on 8080)"
+            fi
+        else
+            log_fail "ScadaBR install failed. Check: cat /tmp/scadabrInstall.log"
+        fi
+    fi
 fi
 
-# Start Python OPC-UA fallback server if ScadaBR not present
-if ! ss -tlnp 2>/dev/null | grep -q ':4840 '; then
-    log_info "Starting Python OPC-UA simulator on port 4840..."
-    # Will be started by the main lab setup below
+# Desktop shortcut
+DESKTOP="$HOME/Desktop"
+mkdir -p "$DESKTOP"
+cat > "$DESKTOP/ScadaBR-Palanca.desktop" <<EOF
+[Desktop Entry]
+Name=ScadaBR (Palanca SCADA HMI)
+Comment=Evolve Power Palanca plant SCADA simulation
+Exec=bash -c "sudo /opt/ScadaBR/tomcat/bin/startup.sh && sleep 15 && xdg-open http://localhost:9090/ScadaBR; exec bash"
+Terminal=true
+Type=Application
+Icon=utilities-system-monitor
+EOF
+chmod +x "$DESKTOP/ScadaBR-Palanca.desktop"
+log_ok "ScadaBR desktop shortcut created"
+
+# ScadaBR is the preferred OPC-UA/HMI source; the bundled Python server
+# remains available as a fallback if ScadaBR failed to install above.
+if [[ ! -f "$SCADABR_TOMCAT" ]]; then
+    log_warn "Lab 4 (OPC-UA) will use the bundled Python OPC-UA server instead:" \
+             "python3 $LAB_ROOT/scripts/palanca_opcua_server.py (see README.md, Lab 4)"
 fi
 
 # ── STEP 5: Lab directory structure ──────────────────────────────
@@ -203,11 +296,15 @@ chmod 755 "$LAB_ROOT"
 
 log_ok "Lab directory: $LAB_ROOT"
 
-# Copy lab scripts to trainee lab directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Copy lab scripts to trainee lab directory (SCRIPT_DIR captured at the top)
 
 for script in palanca_modbus_read.py palanca_modbus_monitor.py palanca_opcua_browse.py palanca_opcua_server.py generate_baseline_pcap.py; do
-    if [[ -f "$SCRIPT_DIR/$script" ]]; then
+    if [[ -f "$LAB_ROOT/scripts/$script" ]]; then
+        # Never overwrite once copied — palanca_modbus_read.py is the Lab 3
+        # trainee template (edited in place, <<< TASK >>> sections), and a
+        # re-run of this script must not clobber that work.
+        log_ok "$script already in place (not overwritten)"
+    elif [[ -f "$SCRIPT_DIR/$script" ]]; then
         cp "$SCRIPT_DIR/$script" "$LAB_ROOT/scripts/"
         chmod +x "$LAB_ROOT/scripts/$script"
         log_ok "Copied $script"
@@ -217,7 +314,9 @@ for script in palanca_modbus_read.py palanca_modbus_monitor.py palanca_opcua_bro
 done
 
 # Copy PLC program (lives alongside this script in Module_01/)
-if [[ -f "$SCRIPT_DIR/palanca_gen_start.st" ]]; then
+if [[ -f "$LAB_ROOT/palanca_gen_start.st" ]]; then
+    log_ok "palanca_gen_start.st already in place (not overwritten)"
+elif [[ -f "$SCRIPT_DIR/palanca_gen_start.st" ]]; then
     cp "$SCRIPT_DIR/palanca_gen_start.st" "$LAB_ROOT/"
     log_ok "Copied palanca_gen_start.st"
 else
@@ -322,11 +421,25 @@ else
     log_warn "Port 8080 not listening"
 fi
 
-# Port 4840 — OPC-UA
+# Port 4840 — OPC-UA (Python fallback server, only if ScadaBR isn't installed)
 if ss -tlnp 2>/dev/null | grep -q ':4840 '; then
     log_ok "Port 4840 (OPC-UA) LISTENING"
+elif [[ -f "$SCADABR_TOMCAT" ]]; then
+    log_ok "Port 4840 not listening — expected, ScadaBR is installed as the Lab 4 HMI/OPC-UA source"
 else
     log_warn "Port 4840 not listening — start OPC-UA server before Lab 4"
+fi
+
+# ScadaBR
+if [[ -f "$SCADABR_TOMCAT" ]]; then
+    log_ok "ScadaBR Tomcat installed at $SCADABR_INSTALL"
+    if sudo grep -q 'port="9090"' "$SCADABR_INSTALL/tomcat/conf/server.xml" 2>/dev/null; then
+        log_ok "ScadaBR Tomcat patched to port 9090"
+    else
+        log_warn "ScadaBR Tomcat still on port 8080 — will clash with OpenPLC web UI"
+    fi
+else
+    log_warn "ScadaBR not installed — see STEP 4 output above"
 fi
 
 # Python check — import success is the pass/fail criterion; version
@@ -371,6 +484,15 @@ else
     echo -e "Baseline PCAP: $LAB_ROOT/pcaps/palanca_baseline.pcap"
 fi
 echo ""
+if [[ -f "$SCADABR_TOMCAT" ]]; then
+    echo -e "${CYAN}ScadaBR (Palanca SCADA HMI):${NC}"
+    echo -e "  Start:  ${CYAN}sudo /opt/ScadaBR/tomcat/bin/startup.sh${NC}   (or double-click the desktop shortcut)"
+    echo -e "  Visit:  http://localhost:9090/ScadaBR   (admin / admin)"
+    echo -e "  Stop:   ${CYAN}sudo /opt/ScadaBR/tomcat/bin/shutdown.sh${NC}"
+    echo -e "  Wire it to OpenPLC (one-time, in the browser): Data Sources -> New Data Source -> Modbus IP"
+    echo -e "    Host 127.0.0.1  Port 502  Unit ID 1 — see README.md, Lab 4 for the exact points to add."
+    echo ""
+fi
 echo -e "Quick lab-start commands:"
 echo -e "  Verify Modbus:  ${CYAN}ss -an | grep :502${NC}"
 echo -e "  Verify OPC-UA:  ${CYAN}ss -an | grep :4840${NC}"

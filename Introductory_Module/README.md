@@ -20,6 +20,18 @@ When it finishes, it prints a **post-install checklist** — read it, it tells y
 
 ---
 
+## Tearing down
+
+```bash
+sudo bash teardown.sh
+```
+
+Stops ScadaBR and OpenPLC if running, and removes everything the setup script created under your home directory (`~/oceon-lab/`, the ScadaBR desktop shortcut, the Evolve-Power Wireshark profile). Same invocation rules as the setup script — `sudo bash`, as your normal user, not after `sudo su`.
+
+It always removes the OpenPLC systemd unit too (not just stops it) — that unit name is shared with Module_01's OpenPLC install, and leaving a stale one behind is what causes a stopped-but-still-registered service from one module to keep serving requests through the other module's fresh build. Everything else stays in place on its own — `/opt/ScadaBR`, the wireshark/ubridge group grants, and apt packages (Wireshark, Nmap, GNS3, draw.io). At the end it prints the exact commands for each of those, for you to run by hand if you want a fully clean host.
+
+---
+
 ## 2. What you get
 
 Everything lands in `~/oceon-lab/`:

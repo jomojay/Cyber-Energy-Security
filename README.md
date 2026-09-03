@@ -11,10 +11,12 @@ Cyber-Energy-Security/
 ├── README.md                        ← you are here
 ├── Introductory_Module/
 │   ├── README.md                    ← Module 0 trainee guide
-│   └── oceon_m0_lab_setup.sh        ← Module 0 environment setup (installs onto the host)
+│   ├── oceon_m0_lab_setup.sh        ← Module 0 environment setup (installs onto the host)
+│   └── teardown.sh                  ← stops services and removes the Module 0 lab
 ├── Module_01/
 │   ├── README.md                    ← Module 1 trainee guide
 │   ├── setup_lab_env.sh             ← Module 1 environment setup (installs onto the host)
+│   ├── teardown.sh                  ← stops services and removes the Module 1 lab
 │   ├── palanca_modbus_read.py       ← Lab 3 trainee template (Modbus/TCP)
 │   ├── palanca_modbus_monitor.py    ← Lab 3 extension (anomaly thresholds)
 │   ├── palanca_opcua_server.py      ← Lab 4 OPC-UA server simulator
@@ -107,6 +109,8 @@ Each module has its own setup script inside its folder, and **each is invoked di
 | Introductory_Module | `oceon_m0_lab_setup.sh` | `sudo bash oceon_m0_lab_setup.sh` |
 | Module_01 | `setup_lab_env.sh` | `bash setup_lab_env.sh` (no `sudo`) |
 | Module_2_Lab_Setup | `setup.sh` | `./setup.sh` (no `sudo`) |
+
+Each of these has a matching `teardown.sh` in the same folder, invoked the same way (`sudo bash teardown.sh` for Introductory_Module, plain `bash teardown.sh` for Module_01, `./teardown.sh` for Module_2_Lab_Setup). Introductory_Module and Module_01's teardown scripts always stop the OpenPLC/ScadaBR services and remove everything created under your home directory. They also always remove the OpenPLC systemd unit specifically — that unit name (`openplc.service`) is shared between the two modules' OpenPLC installs, so a stopped-but-still-registered unit left by one module can silently keep serving stale requests through the other module's fresh build; the unit is cheap to remove since it's rewritten fresh on every install anyway. Everything else — the `/opt` installs themselves, group grants, apt/pip packages — is left in place on its own; the scripts print the exact commands for each at the end, for you to run by hand if you want a fully clean host.
 
 - **`oceon_m0_lab_setup.sh` must be run with `sudo bash`, as your normal user account.** It needs root for the whole run and uses `$SUDO_USER` to set correct file ownership. Do **not** log in as root or use `sudo su` first — `$SUDO_USER` is empty in that case and the script will refuse to run.
 - **`setup_lab_env.sh` must be run *without* `sudo`.** It calls `sudo` itself for the individual commands that need root, and otherwise installs lab files under your own `$HOME`. Running the whole script with `sudo bash` makes every path resolve under `/root` instead of your home directory, and you'll get sudo password prompts partway through the run either way — so just run it plain.
@@ -204,7 +208,7 @@ Switch your VM network adapter from Bridged to NAT, then re-run the script.
 The script patches ScadaBR to port 9090. If you still see a conflict, check what is on that port: `ss -tlnp | grep 9090`. OpenPLC runs on 8080; the two should not collide.
 
 **OPC-UA port 4840 not listening (Module 1 Lab 4)**
-ScadaBR is the preferred OPC-UA server but requires manual installation. If it is not installed, start the Python fallback instead: `python3 ~/palanca_labs/module1/scripts/palanca_opcua_server.py`. Verify with `ss -tlnp | grep 4840`.
+Both setup scripts install ScadaBR automatically now, and it's the preferred OPC-UA/HMI source — port 4840 only matters if ScadaBR failed to install (check the setup script's `[FAIL]`/`[WARN]` output). In that case, start the Python fallback instead: `python3 ~/palanca_labs/module1/scripts/palanca_opcua_server.py`. Verify with `ss -tlnp | grep 4840`.
 
 **A check fails in the verification summary**
 Re-run the script — it is idempotent and will skip steps that already succeeded. If the same step fails again, check the `[WARN]` output for the specific error and the manual remediation hint printed there.
