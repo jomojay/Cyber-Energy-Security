@@ -15,21 +15,22 @@ bash setup_lab_env.sh
 > **Do not use `sudo` here.** Unlike Module 0's script, this one calls `sudo` itself for the individual commands that need root, and otherwise installs everything under your own `$HOME`. Running the whole script with `sudo bash` puts your lab files under `/root` instead — you'll still get sudo password prompts partway through, so just run it plain.
 
 - **Idempotent** — safe to re-run if a step fails; completed steps are skipped.
-- OpenPLC's build step and the ScadaBR download are the slow parts (several minutes on first run).
+- Building the OpenPLC + ScadaBR container images is the slow part (several minutes on first run).
 - The script prints `[FAIL]`/`[WARN]` lines for anything that didn't fully succeed, plus a remediation hint — check those before starting the labs if the summary at the end isn't all green.
-- When it finishes, if ScadaBR installed successfully it prints the same kind of post-install block Module 0 does: how to start Tomcat, the URL to visit, and how to wire ScadaBR to OpenPLC as a Modbus data source — read it before Lab 4.
+- When it finishes, if ScadaBR is running it prints the same kind of post-install block Module 0 does: the URL to visit, and how to wire ScadaBR to OpenPLC as a Modbus data source — read it before Lab 4.
 
 ---
 
 ## Tearing down
 
 ```bash
-bash teardown.sh
+bash teardown.sh          # stop + remove containers, keep uploaded PLC program / ScadaBR config
+bash teardown.sh -v       # also wipe those (full reset)
 ```
 
-Stops the OpenPLC and ScadaBR services if running, and removes everything the setup script created under your home directory (`~/palanca_labs/module1/`, the Palanca-OT Wireshark profile, the ScadaBR desktop shortcut). Same invocation rule as setup — run it plain, no `sudo` (it calls `sudo` itself for the parts that need root).
+Stops and removes the OpenPLC + ScadaBR containers (`docker compose down`), and removes everything the setup script created under your home directory (`~/palanca_labs/module1/`, the Palanca-OT Wireshark profile, the ScadaBR desktop shortcut). Same invocation rule as setup — run it plain, no `sudo` (it calls `sudo` itself for the parts that need root).
 
-It always removes the OpenPLC systemd unit too (not just stops it) — that unit name is shared with Introductory_Module's OpenPLC install, and leaving a stale one behind is what causes a stopped-but-still-registered service from one module to keep serving requests through the other module's fresh build. Everything else stays in place on its own: `/opt/OpenPLC_v3`, `/opt/ScadaBR`, and apt/pip packages (Wireshark, Nmap, pymodbus, opcua, pyshark, scapy). At the end it prints the exact commands for each of those, for you to run by hand if you want a fully clean host.
+Because OpenPLC and ScadaBR are containers instead of host installs, there's no systemd unit, no `/opt` install, and no Tomcat/JVM process left running afterward — `docker compose down` removes them completely. Only the built Docker images and apt/pip packages (Wireshark, Nmap, pymodbus, opcua, pyshark, scapy) stay in place on their own. At the end it prints the exact commands for each of those, for you to run by hand if you want a fully clean host.
 
 ---
 
@@ -49,14 +50,15 @@ Everything lands in `~/palanca_labs/module1/`:
 
 A Wireshark colour profile (**Palanca-OT**, with display-filter macros) is also installed under `~/.config/wireshark/profiles/`.
 
-ScadaBR (the Palanca SCADA HMI) installs to `/opt/ScadaBR`, same as Module 0, with a desktop shortcut (**ScadaBR-Palanca**) that starts it and opens the browser. If the download or install fails — check for `[WARN]`/`[FAIL]` lines under "STEP 4" in the setup output — Lab 4 falls back to the bundled Python OPC-UA server instead.
+OpenPLC and ScadaBR (the Palanca SCADA HMI) run as containers, built from `docker/docker-compose.yml` in this folder — same approach as Module 0, not host installs. A desktop shortcut (**ScadaBR-Palanca**) starts the ScadaBR container and opens the browser. If the container build/start fails — check for `[WARN]`/`[FAIL]` lines under "STEP 3" in the setup output, or `docker compose -f docker/docker-compose.yml logs scadabr` — Lab 4 falls back to the bundled Python OPC-UA server instead.
 
 | Service | Port |
 |---|---|
 | OpenPLC Web UI | 8080 |
+| OpenPLC REST API | 8443 |
 | Modbus/TCP (OpenPLC) | 502 |
 | ScadaBR HMI | 9090 |
-| OPC-UA (Python fallback server, only if ScadaBR isn't installed) | 4840 |
+| OPC-UA (Python fallback server, only if ScadaBR isn't running) | 4840 |
 
 Work from the copies in `~/palanca_labs/module1/scripts/`, not the ones in this repo checkout — that's your sandbox, and re-running the setup script won't overwrite files you've already edited there.
 
@@ -101,14 +103,15 @@ python3 ~/palanca_labs/module1/scripts/palanca_modbus_monitor.py
 
 ### Lab 4 — OPC-UA Exploration
 
-If ScadaBR installed successfully (check for it in the setup summary, or `test -f /opt/ScadaBR/tomcat/bin/startup.sh`), wire it up first — it's the primary OPC-UA/HMI source for this lab:
+If ScadaBR is running (check for it in the setup summary, or `docker compose -f docker/docker-compose.yml ps`), wire it up first — it's the primary OPC-UA/HMI source for this lab:
 
-1. Start it: `sudo /opt/ScadaBR/tomcat/bin/startup.sh` (or double-click the **ScadaBR-Palanca** desktop shortcut), wait ~15s, then open http://localhost:9090/ScadaBR (`admin` / `admin`).
-2. **Data Sources → New Data Source → Modbus IP**: Name `Palanca Generator`, Host `127.0.0.1`, Port `502`, Unit ID `1`, Update period 5s, Transport TCP. Save.
+1. Start it: `docker compose -f docker/docker-compose.yml up -d scadabr` (or double-click the **ScadaBR-Palanca** desktop shortcut), wait ~15s, then open http://localhost:9090/ScadaBR (`admin` / `admin`).
+2. **Data Sources → New Data Source → Modbus IP**: Name `Palanca Generator`, Host `openplc`, Port `502`, Unit ID `1`, Update period 5s, Transport TCP. Save.
+   (Host is the container name "openplc", not 127.0.0.1 — ScadaBR and OpenPLC are separate containers on the same Docker network.)
 3. Add data points matching the register map in `palanca_gen_start.st` (coils/discretes as Binary, registers as Two byte int unsigned) — start with `GEN1_START_CMD`, `GEN1_RUNNING`, `GEN1_FREQUENCY_x100`.
 4. Enable the data source and confirm the points go green.
 
-If ScadaBR isn't installed, use the bundled Python fallback instead — two scripts, run in order. `palanca_opcua_browse.py` is read-only — you run and interpret it, you don't modify it.
+If ScadaBR isn't running, use the bundled Python fallback instead — two scripts, run in order. `palanca_opcua_browse.py` is read-only — you run and interpret it, you don't modify it.
 
 **Terminal 1 — start the OPC-UA server** (mirrors the Modbus registers into an OPC-UA address space):
 ```bash
@@ -149,13 +152,15 @@ Add device names, IP addresses, Purdue levels, protocol labels, VLAN boundary bo
 
 Module-specific quick hits — for anything else, see the [repository-level Troubleshooting section](../README.md#troubleshooting).
 
-**Port 502 not listening / setup log shows "OpenPLC install script failed"** — first check `sudo systemctl start openplc` and re-check *Start PLC* at http://localhost:8080. If OpenPLC never installed at all, re-run the setup script and watch for a CMake error mentioning `Compatibility with CMake < 3.5 has been removed` / `Error installing OpenDNP3` — that's current CMake (4.x, shipped by Kali rolling) refusing to configure OpenPLC's bundled OpenDNP3 build. The script already works around this (`CMAKE_POLICY_VERSION_MINIMUM=3.5`); if it still fails, install manually from `/opt/OpenPLC_v3`: `sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux`.
+**Port 502 not listening / OpenPLC container not running** — check `docker compose -f docker/docker-compose.yml ps` and `docker compose -f docker/docker-compose.yml logs openplc`. Restart with `docker compose -f docker/docker-compose.yml restart openplc`. If the image never built at all, re-run `bash setup_lab_env.sh` — it's idempotent — or run `docker compose -f docker/docker-compose.yml build` directly to see the full build log.
 
-**Port 4840 not listening (Lab 4)** — expected if ScadaBR installed successfully, since it's the primary OPC-UA/HMI source and the Python server only needs to run as a fallback. Check `sudo ss -tlnp | grep 9090` instead. If ScadaBR isn't installed either, start the Python fallback: `python3 ~/palanca_labs/module1/scripts/palanca_opcua_server.py`.
+**Port 4840 not listening (Lab 4)** — expected if ScadaBR is running, since it's the primary OPC-UA/HMI source and the Python server only needs to run as a fallback. Check `docker compose -f docker/docker-compose.yml ps` instead. If ScadaBR isn't running either, start the Python fallback: `python3 ~/palanca_labs/module1/scripts/palanca_opcua_server.py`.
 
-**ScadaBR won't start / port conflict** — `sudo /opt/ScadaBR/tomcat/bin/startup.sh`, wait ~15s, then open http://localhost:9090/ScadaBR. Check `ss -tlnp | grep 9090` if it still doesn't respond. OpenPLC runs on 8080; the two should not collide since the setup script patches ScadaBR's Tomcat to 9090.
+**ScadaBR won't start / port conflict** — `docker compose -f docker/docker-compose.yml up -d scadabr`, wait ~15s, then open http://localhost:9090/ScadaBR. Check `docker compose -f docker/docker-compose.yml logs scadabr` if it still doesn't respond. OpenPLC and ScadaBR are separate containers, so they no longer share a network namespace to collide in.
 
-**ScadaBR failed to download or install** — check the "STEP 4" output from `setup_lab_env.sh` for the exact `[FAIL]` line. A failed download usually means a network hiccup — just re-run `bash setup_lab_env.sh`, it's idempotent and will retry. Lab 4 still works via the Python fallback server in the meantime.
+**ScadaBR container failed to build or start** — check the "STEP 3" output from `setup_lab_env.sh` for the exact `[FAIL]` line, or `docker compose -f docker/docker-compose.yml logs scadabr`. A failed image build usually means a network hiccup during the ScadaBR download — just re-run `bash setup_lab_env.sh`, it's idempotent and will retry. Lab 4 still works via the Python fallback server in the meantime.
+
+**Only one of Module 0 / Module 1's PLC+SCADA stacks can run at a time** — both publish the same host ports (502/8080/8443/9090). If you're switching between modules, tear one down first: `bash teardown.sh` here, or the equivalent in `Introductory_Module/`, before starting the other.
 
 **`opcua`/`pymodbus` import errors** — the setup script installs these with `pip3 install --break-system-packages`, system-wide (no venv in this module, unlike Module 0). Re-run `bash setup_lab_env.sh` if imports still fail.
 

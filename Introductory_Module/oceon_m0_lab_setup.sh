@@ -9,6 +9,12 @@
 
 set -euo pipefail
 
+# Captured before anything below ever cd's away — computing this later from a
+# relative $0 would resolve against whatever the caller's cwd happens to be
+# instead of this script's own folder, and the OpenPLC/ScadaBR docker-compose
+# stack lives at a fixed path relative to this file, not to the caller's cwd.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'
 BLU='\033[0;34m'; CYN='\033[0;36m'; NC='\033[0m'
 
@@ -110,7 +116,6 @@ BASE_PKGS=(
     libpcap-dev libssl-dev libffi-dev
     software-properties-common apt-transport-https
     ca-certificates gnupg lsb-release
-    default-jre-headless   # ScadaBR/Tomcat dependency — portable metapackage
     jq tree htop vim
 )
 BASE_FAIL=0
@@ -242,23 +247,46 @@ else
 fi
 
 # =============================================================================
-# 4. OPENPLC RUNTIME
+# 4. PLC + SCADA STACK — OpenPLC + ScadaBR (Docker)
 # =============================================================================
-hdr "4 — OpenPLC Runtime (simulates Evolve Power Siemens S7-1200)"
+# Both run as containers (see docker/docker-compose.yml) instead of being
+# compiled/installed onto the host. This is what makes teardown.sh able to
+# fully remove them with 'docker compose down' — no leftover /opt install,
+# no leftover systemd unit, no leftover Tomcat/JVM process surviving a
+# session, unlike the old host-install approach.
+hdr "4 — PLC + SCADA stack: OpenPLC + ScadaBR (Docker)"
 
-OPENPLC_DIR="$LAB/OpenPLC_v3"
+if ! command -v docker &>/dev/null; then
+    err "Docker is not installed. Install Docker Engine + Compose plugin first, then re-run this script:
+  https://docs.docker.com/engine/install/"
+fi
+if ! docker compose version &>/dev/null; then
+    err "'docker compose' (v2 plugin) not found. Install the compose plugin, then re-run this script."
+fi
 
-if [[ -d "$OPENPLC_DIR" ]]; then
-    ok "OpenPLC already cloned at $OPENPLC_DIR"
+DOCKER_DIR="$SCRIPT_DIR/docker"
+COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
+
+log "Building OpenPLC + ScadaBR images (first run takes several minutes) ..."
+docker compose -f "$COMPOSE_FILE" build --quiet
+
+log "Starting OpenPLC + ScadaBR containers ..."
+docker compose -f "$COMPOSE_FILE" up -d
+
+log "Waiting for OpenPLC and ScadaBR to come up ..."
+for i in $(seq 1 30); do
+    ss -tlnp 2>/dev/null | grep -q ':502 ' && ss -tlnp 2>/dev/null | grep -q ':9090 ' && break
+    sleep 2
+done
+if ss -tlnp 2>/dev/null | grep -q ':502 '; then
+    ok "OpenPLC Modbus/TCP listening on port 502"
 else
-    apt-get install -y -qq libglib2.0-dev libboost-all-dev pkg-config sqlite3 libsqlite3-dev
-    log "Cloning OpenPLC Runtime v3 ..."
-    if git clone https://github.com/thiagoralves/OpenPLC_v3.git "$OPENPLC_DIR"; then
-        ok "OpenPLC cloned at $OPENPLC_DIR"
-    else
-        warn "OpenPLC clone failed. Retry manually:"
-        warn "  git clone https://github.com/thiagoralves/OpenPLC_v3.git $OPENPLC_DIR"
-    fi
+    warn "OpenPLC not yet listening on 502 — check: docker compose -f $COMPOSE_FILE logs openplc"
+fi
+if ss -tlnp 2>/dev/null | grep -q ':9090 '; then
+    ok "ScadaBR listening on port 9090"
+else
+    warn "ScadaBR not yet listening on 9090 — check: docker compose -f $COMPOSE_FILE logs scadabr"
 fi
 
 # Evolve Power ladder logic program
@@ -326,76 +354,13 @@ END_CONFIGURATION
 EOF
 ok "Palanca motor feeder ST program written to $PROGRAMS_DIR"
 
-# =============================================================================
-# 5. SCADABR
-# =============================================================================
-hdr "5 — ScadaBR 1.2 (Palanca SCADA HMI)"
-
-SCADABR_DIR="$LAB/scadabr"
-SCADABR_INSTALL="/opt/ScadaBR"
-SCADABR_URL="https://github.com/ScadaBR/ScadaBR/releases/download/v1.2/ScadaBR_Setup_Linux.zip"
-SCADABR_TOMCAT="$SCADABR_INSTALL/tomcat/bin/startup.sh"
-
-if [[ -f "$SCADABR_TOMCAT" ]]; then
-    ok "ScadaBR already installed at $SCADABR_INSTALL"
-else
-    if [[ ! -f "$SCADABR_DIR/install_scadabr.sh" ]]; then
-        mkdir -p "$SCADABR_DIR"
-        log "Downloading ScadaBR 1.2 Linux installer ..."
-        if wget -q --timeout=120 --show-progress "$SCADABR_URL" -O /tmp/ScadaBR_Linux.zip; then
-            log "Extracting ..."
-            unzip -q /tmp/ScadaBR_Linux.zip -d /tmp/scadabr_extract
-            INNER=$(find /tmp/scadabr_extract -maxdepth 1 -mindepth 1 -type d | head -1)
-            SRC=$( [[ -n "$INNER" ]] && echo "$INNER" || echo "/tmp/scadabr_extract" )
-            cp -r "$SRC"/. "$SCADABR_DIR"/
-            rm -rf /tmp/ScadaBR_Linux.zip /tmp/scadabr_extract
-            chmod +x "$SCADABR_DIR"/*.sh 2>/dev/null || true
-            ok "ScadaBR 1.2 extracted to $SCADABR_DIR"
-        else
-            warn "ScadaBR download failed:"
-            warn "  wget '$SCADABR_URL' -O /tmp/ScadaBR_Linux.zip"
-            warn "  sudo unzip /tmp/ScadaBR_Linux.zip -d $SCADABR_DIR"
-        fi
-    else
-        ok "ScadaBR installer already extracted at $SCADABR_DIR"
-    fi
-
-    if [[ -f "$SCADABR_DIR/install_scadabr.sh" ]]; then
-        # Guard: installer aborts if /opt/ScadaBR exists even if empty
-        if [[ -d "$SCADABR_INSTALL" && -z "$(ls -A "$SCADABR_INSTALL" 2>/dev/null)" ]]; then
-            log "Removing empty $SCADABR_INSTALL from prior failed run ..."
-            rm -rf "$SCADABR_INSTALL"
-        fi
-
-        log "Running ScadaBR installer in silent mode ..."
-        cd "$SCADABR_DIR"
-        # silent mode skips config prompts; echo 'n' suppresses the residual
-        # "Launch now?" prompt caused by a $1 scoping bug in finishInstall()
-        echo 'n' | bash install_scadabr.sh silent
-        cd - > /dev/null
-
-        if [[ -f "$SCADABR_TOMCAT" ]]; then
-            ok "ScadaBR installed at $SCADABR_INSTALL"
-
-            # CRITICAL: ScadaBR silent mode defaults to port 8080, which
-            # conflicts with OpenPLC's web UI. Patch to 9090 immediately.
-            SCADABR_SERVER_XML="$SCADABR_INSTALL/tomcat/conf/server.xml"
-            if grep -q 'port="8080"' "$SCADABR_SERVER_XML" 2>/dev/null; then
-                sed -i 's/port="8080"/port="9090"/' "$SCADABR_SERVER_XML"
-                ok "ScadaBR Tomcat patched to port 9090 (avoids clash with OpenPLC on 8080)"
-            fi
-        else
-            warn "ScadaBR install failed. Check: cat /tmp/scadabrInstall.log"
-        fi
-    fi
-fi
-
-# Desktop shortcut
+# Desktop shortcut — brings the containers up (in case they were stopped)
+# and opens the browser, instead of the old direct Tomcat startup.sh call.
 cat > "$DESKTOP/ScadaBR-Palanca.desktop" <<EOF
 [Desktop Entry]
 Name=ScadaBR (Palanca SCADA HMI)
 Comment=Evolve Power Palanca plant SCADA simulation
-Exec=bash -c "sudo /opt/ScadaBR/tomcat/bin/startup.sh && sleep 15 && xdg-open http://localhost:9090/ScadaBR; exec bash"
+Exec=bash -c "docker compose -f $SCRIPT_DIR/docker/docker-compose.yml up -d scadabr && sleep 15 && xdg-open http://localhost:9090/ScadaBR; exec bash"
 Terminal=true
 Type=Application
 Icon=utilities-system-monitor
@@ -409,14 +374,43 @@ chown "$REAL_USER:$REAL_USER" "$DESKTOP/ScadaBR-Palanca.desktop"
 hdr "6 — pymodbus + Evolve Power polling helper"
 
 VENV="$LAB/venv"
-if [[ ! -d "$VENV" ]]; then
+
+# A venv directory can exist without a working pip inside it — this
+# happens if a prior run's 'python3 -m venv' was interrupted (network
+# blip, disk full) after the directory structure was created but before
+# ensurepip finished. Checking only -d "$VENV" (as before) would then
+# skip recreation forever: every re-run would hit the pip install line
+# below with no bin/pip to invoke, and under set -e that kills the whole
+# rest of the script (draw.io, ownership sweep, verification, notes all
+# silently skipped) — every single time. Recreate whenever pip is missing
+# too, not just when the directory itself is.
+if [[ ! -d "$VENV" ]] || [[ ! -x "$VENV/bin/pip" ]]; then
+    if [[ -d "$VENV" ]]; then
+        warn "Existing venv at $VENV has no working pip — recreating it"
+        rm -rf "$VENV"
+    fi
     sudo -u "$REAL_USER" python3 -m venv "$VENV"
     ok "Python venv created at $VENV"
 fi
 
-sudo -u "$REAL_USER" "$VENV/bin/pip" install --quiet --upgrade pip
-sudo -u "$REAL_USER" "$VENV/bin/pip" install --quiet pymodbus==3.6.9 rich click
-ok "pymodbus 3.6.9 + rich installed"
+# Non-fatal on failure (matches how the rest of this script treats
+# individual component installs) — a network hiccup here shouldn't abort
+# everything after it; the import check below reports the real verdict.
+sudo -u "$REAL_USER" "$VENV/bin/pip" install --quiet --upgrade pip \
+    || warn "pip upgrade failed inside venv — continuing with existing pip"
+sudo -u "$REAL_USER" "$VENV/bin/pip" install --quiet pymodbus==3.6.9 rich click \
+    || warn "pymodbus/rich/click install failed — check network connectivity and re-run this script"
+
+# Don't just trust the install commands' exit codes — actually import
+# what trainees need, so a partial or misdirected install is caught here
+# immediately instead of being discovered later when palanca_poll.py fails.
+if sudo -u "$REAL_USER" "$VENV/bin/python3" -c "import pymodbus, rich, click" &>/dev/null; then
+    ok "pymodbus 3.6.9 + rich installed"
+else
+    warn "pymodbus/rich/click not importable in the venv after install."
+    warn "  Retry manually: sudo -u $REAL_USER $VENV/bin/pip install pymodbus==3.6.9 rich click"
+    warn "  Then verify:    sudo -u $REAL_USER $VENV/bin/python3 -c 'import pymodbus'"
+fi
 
 cat > "$LAB/palanca_poll.py" <<'PYEOF'
 #!/usr/bin/env python3
@@ -720,7 +714,6 @@ check() {
 
 check "Wireshark"                   command -v wireshark
 check "tshark"                      command -v tshark
-check "Java (ScadaBR/Tomcat dep.)"  command -v java
 check "Evolve-Power colour profile" test -f "$EP_PROFILE/colorfilters"
 check "Nmap"                        command -v nmap
 check "GNS3 server"                 command -v gns3server
@@ -729,10 +722,9 @@ check "Python3"                     command -v python3
 check "venv exists"                 test -d "$VENV"
 check "pymodbus in venv"            "$VENV/bin/python3" -c "import pymodbus"
 check "rich in venv"                "$VENV/bin/python3" -c "import rich"
-check "OpenPLC cloned"              test -d "$OPENPLC_DIR"
 check "Palanca ST program"          test -f "$PROGRAMS_DIR/palanca_motor_feeder.st"
-check "ScadaBR Tomcat startup"      test -f "/opt/ScadaBR/tomcat/bin/startup.sh"
-check "ScadaBR port 9090 patched"   grep -q 'port="9090"' "/opt/ScadaBR/tomcat/conf/server.xml"
+check "OpenPLC container running"   bash -c "docker compose -f $COMPOSE_FILE ps --status running --services | grep -qx openplc"
+check "ScadaBR container running"   bash -c "docker compose -f $COMPOSE_FILE ps --status running --services | grep -qx scadabr"
 check "palanca_poll.py"             test -f "$LAB/palanca_poll.py"
 check "Purdue template"             test -f "$DIAGRAMS_DIR/OCEON-M0-PURDUE-TEMPLATE.drawio"
 check "ScadaBR desktop shortcut"    test -f "$DESKTOP/ScadaBR-Palanca.desktop"
@@ -755,19 +747,10 @@ STEP 1: LOG OUT AND BACK IN
   Required for the wireshark group to take effect.
   Or run in the current session: newgrp wireshark
 
-STEP 2: INSTALL OPENPLC RUNTIME (one-time, ~10 min, interactive)
-  cd ~/oceon-lab/OpenPLC_v3
-  sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux
-  Web UI: http://localhost:8080   credentials: openplc / openplc
-  REST API: https://localhost:8443 (accept the self-signed cert warning)
-  Note: after install, start the service with: sudo systemctl start openplc
-  Note: the CMAKE_POLICY_VERSION_MINIMUM=3.5 above works around OpenPLC's
-        bundled OpenDNP3 failing to configure under CMake 4.x (Kali
-        rolling, and eventually newer Ubuntu) — "sudo bash install.sh
-        linux" alone will fail on those with a CMake policy error.
-
-STEP 3: LOAD THE EVOLVE POWER PLC PROGRAM
-  - Open http://localhost:8080
+STEP 2: LOAD THE EVOLVE POWER PLC PROGRAM
+  OpenPLC is already built and running as a container (docker/docker-compose.yml) —
+  no separate install step needed.
+  - Open http://localhost:8080   credentials: openplc / openplc
   - Programs -> Upload New Program
   - Select: ~/oceon-lab/evolve-power-programs/palanca_motor_feeder.st
   - Click Compile, then Start PLC
@@ -776,22 +759,23 @@ STEP 3: LOAD THE EVOLVE POWER PLC PROGRAM
     (The web UI's Monitoring tab only shows points you add manually
     there — %QX0.0 for BREAKER_CLOSE_CMD — so polling directly is
     the quicker check, and it's the same tool Lab 1 uses next.)
+  REST API: https://localhost:8443 (accept the self-signed cert warning)
 
-STEP 4: START SCADABR (Palanca SCADA HMI)
-  ScadaBR auto-starts on reboot via crontab (root crontab, @reboot).
-  For your first session before any reboot:
-    sudo /opt/ScadaBR/tomcat/bin/startup.sh
-  Or double-click the desktop shortcut (no password needed).
-  Wait 15 seconds, then open: http://localhost:9090/ScadaBR
+STEP 3: SCADABR (Palanca SCADA HMI)
+  Already running as a container too. Open: http://localhost:9090/ScadaBR
   Credentials: admin / admin
+  If you ever stop it (docker compose down), bring it back up with:
+    docker compose -f docker/docker-compose.yml up -d
+  Or double-click the desktop shortcut (rebuilds nothing, just starts + opens browser).
+  Check running:   docker compose -f docker/docker-compose.yml ps
+  Logs:            docker compose -f docker/docker-compose.yml logs scadabr
 
-  Stop ScadaBR:    sudo /opt/ScadaBR/tomcat/bin/shutdown.sh
-  Check running:   ss -tlnp | grep 9090
-
-STEP 5: WIRE SCADABR TO OPENPLC (one-time, in the browser)
+STEP 4: WIRE SCADABR TO OPENPLC (one-time, in the browser)
   Data Sources -> New Data Source -> Modbus IP
     Name: Evolve Power PLC
-    Host: 127.0.0.1   Port: 502   Unit ID: 1
+    Host: openplc   Port: 502   Unit ID: 1
+    (Host is the container name "openplc", not 127.0.0.1 — ScadaBR
+    and OpenPLC are two separate containers on the same Docker network.)
     Update period: 5 seconds   Transport: TCP
   Save, then add 7 data points:
     BREAKER_CLOSE_CMD  — Coil status,      Binary,               offset 0

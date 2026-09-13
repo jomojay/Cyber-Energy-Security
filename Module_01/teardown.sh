@@ -3,21 +3,23 @@
 # OCEON Module 1 Lab Environment Teardown
 # File: teardown.sh
 # Reverses: setup_lab_env.sh
-# Run as your normal user: bash teardown.sh (it calls sudo itself)
-# Idempotent — safe to re-run.
+# Run as your normal user: bash teardown.sh [-v] (it calls sudo itself)
+# Idempotent — safe to re-run. Pass -v to also wipe the OpenPLC/ScadaBR
+# Docker volumes (uploaded PLC program, ScadaBR data source config).
 #
-# Always stops the OpenPLC and ScadaBR services it registered/installed,
-# removes the OpenPLC systemd unit (see note below on why that one isn't
-# opt-in), and removes everything setup_lab_env.sh created under $HOME
-# (lab directory, Wireshark profile, desktop shortcut).
+# Stops and removes the OpenPLC + ScadaBR containers (docker compose down),
+# and removes everything setup_lab_env.sh created under $HOME (lab
+# directory, Wireshark profile, desktop shortcut).
 #
-# It never touches other shared, host-wide state on its own: the compiled
-# installs at /opt/OpenPLC_v3 and /opt/ScadaBR, and apt/pip packages, are
-# all left in place. At the end it prints the exact commands to remove
-# each of those, for the trainee to run by hand if they want a fully
-# clean host — nothing destructive happens to them without you typing it.
+# It never touches other shared, host-wide state on its own: the built
+# Docker images and apt/pip packages are left in place. At the end it
+# prints the exact commands to remove each of those, for the trainee to
+# run by hand if they want a fully clean host — nothing destructive
+# happens to them without you typing it.
 # ================================================================
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -42,41 +44,26 @@ cat << 'BANNER'
 BANNER
 echo -e "${NC}"
 
-# ── STEP 1: Stop running services / processes ────────────────────
-log_step "STEP 1: Stop services"
+# ── STEP 1: Stop and remove the PLC + SCADA containers ────────────
+# OpenPLC and ScadaBR run as containers (docker/docker-compose.yml)
+# instead of being installed onto the host, so a single 'docker compose
+# down' fully removes both — no leftover systemd unit, no leftover
+# Tomcat/JVM process surviving the session like the old host-install
+# approach left behind.
+log_step "STEP 1: Stop PLC + SCADA containers"
 
-if systemctl list-units --full -all 2>/dev/null | grep -q "openplc.service"; then
-    sudo systemctl stop openplc.service 2>/dev/null || true
-    sudo systemctl disable openplc.service 2>/dev/null || true
-    log_ok "OpenPLC service stopped and disabled"
-else
-    log_ok "OpenPLC service not registered (nothing to stop)"
-fi
+COMPOSE_FILE="$SCRIPT_DIR/docker/docker-compose.yml"
 
-# openplc.service is a single, system-wide unit name shared by every OCEON
-# module that installs OpenPLC — Introductory_Module's manual install and
-# this script both invoke the same upstream installer, which always
-# registers a service under this exact name. Unlike /opt/OpenPLC_v3 below,
-# the unit file itself holds no build state and is rewritten fresh on
-# every install, so it's safe to always remove it (not opt-in): leaving a
-# stopped-but-present unit around is what let a stale process from a PRIOR
-# install keep serving requests through a later rebuild — systemd only
-# replaces a unit's running process on 'restart', never on a plain 'start'
-# against an already-active unit, so a leftover unit pointed at the wrong
-# directory silently wins over whatever was just built.
-if [[ -f /usr/lib/systemd/system/openplc.service || -f /lib/systemd/system/openplc.service ]]; then
-    sudo rm -f /usr/lib/systemd/system/openplc.service /lib/systemd/system/openplc.service
-    sudo systemctl daemon-reload
-    log_ok "Removed OpenPLC systemd unit (prevents it colliding with another module's install)"
+if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    if [[ "${1:-}" == "-v" ]]; then
+        docker compose -f "$COMPOSE_FILE" down -v
+        log_ok "OpenPLC + ScadaBR containers and volumes removed"
+    else
+        docker compose -f "$COMPOSE_FILE" down
+        log_ok "OpenPLC + ScadaBR containers removed (volumes kept — pass -v to wipe them too)"
+    fi
 else
-    log_ok "No OpenPLC systemd unit file present"
-fi
-
-if [[ -x /opt/ScadaBR/tomcat/bin/shutdown.sh ]]; then
-    sudo /opt/ScadaBR/tomcat/bin/shutdown.sh &>/dev/null || true
-    log_ok "ScadaBR Tomcat stopped"
-else
-    log_ok "ScadaBR not running (no shutdown.sh found)"
+    log_warn "Docker/compose not found — skipping container teardown (nothing to do if setup never ran)"
 fi
 
 if pkill -u "$USER" -f "palanca_opcua_server.py" 2>/dev/null; then
@@ -126,15 +113,12 @@ echo ""
 echo -e "Nothing shared/host-wide was touched. If you also want a fully clean"
 echo -e "host, here's what's still in place and the commands to remove it:"
 echo ""
-echo -e "${CYAN}OpenPLC compiled install (the systemd service was already removed above):${NC}"
-echo -e "  ${CYAN}sudo rm -rf /opt/OpenPLC_v3${NC}"
-echo ""
-echo -e "${CYAN}ScadaBR install (/opt/ScadaBR):${NC}"
-echo -e "  ${CYAN}sudo rm -rf /opt/ScadaBR${NC}"
+echo -e "${CYAN}Built Docker images (openplc/scadabr, ~a few hundred MB):${NC}"
+echo -e "  ${CYAN}docker compose -f $SCRIPT_DIR/docker/docker-compose.yml down --rmi all${NC}"
 echo ""
 echo -e "${CYAN}Python libraries (pymodbus, opcua, pyshark, scapy):${NC}"
 echo -e "  ${CYAN}pip3 uninstall -y pymodbus opcua pyshark scapy --break-system-packages${NC}"
 echo ""
-echo -e "${CYAN}apt packages (Wireshark, Nmap, Java):${NC}"
-echo -e "  ${CYAN}sudo apt-get purge -y wireshark tshark nmap default-jre-headless${NC}"
+echo -e "${CYAN}apt packages (Wireshark, Nmap):${NC}"
+echo -e "  ${CYAN}sudo apt-get purge -y wireshark tshark nmap${NC}"
 echo -e "  ${CYAN}sudo apt-get autoremove -y${NC}"

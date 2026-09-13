@@ -14,21 +14,22 @@ sudo bash oceon_m0_lab_setup.sh
 
 - Run it **with `sudo bash`, as your normal user** — not logged in as root, and not after `sudo su`. The script uses `$SUDO_USER` to give you (not root) ownership of the lab files it creates.
 - It's **idempotent** — if a step fails (usually a network hiccup), just re-run the same command. Completed steps are skipped.
-- Takes 5–15 minutes depending on your connection. GNS3 and OpenPLC are the slow parts.
+- Takes 5–15 minutes depending on your connection. GNS3 and the OpenPLC/ScadaBR container build are the slow parts.
 
-When it finishes, it prints a **post-install checklist** — read it, it tells you exactly what to do next (log out/in, install OpenPLC, load the PLC program, start ScadaBR). The steps below assume you've completed that checklist.
+When it finishes, it prints a **post-install checklist** — read it, it tells you exactly what to do next (log out/in, load the PLC program, wire ScadaBR to OpenPLC). OpenPLC and ScadaBR are already built and running as containers by the time the script finishes — no separate manual install step. The steps below assume you've completed that checklist.
 
 ---
 
 ## Tearing down
 
 ```bash
-sudo bash teardown.sh
+sudo bash teardown.sh          # stop + remove containers, keep uploaded PLC program / ScadaBR config
+sudo bash teardown.sh -v       # also wipe those (full reset)
 ```
 
-Stops ScadaBR and OpenPLC if running, and removes everything the setup script created under your home directory (`~/oceon-lab/`, the ScadaBR desktop shortcut, the Evolve-Power Wireshark profile). Same invocation rules as the setup script — `sudo bash`, as your normal user, not after `sudo su`.
+Stops and removes the OpenPLC + ScadaBR containers (`docker compose down`), and removes everything the setup script created under your home directory (`~/oceon-lab/`, the ScadaBR desktop shortcut, the Evolve-Power Wireshark profile). Same invocation rules as the setup script — `sudo bash`, as your normal user, not after `sudo su`.
 
-It always removes the OpenPLC systemd unit too (not just stops it) — that unit name is shared with Module_01's OpenPLC install, and leaving a stale one behind is what causes a stopped-but-still-registered service from one module to keep serving requests through the other module's fresh build. Everything else stays in place on its own — `/opt/ScadaBR`, the wireshark/ubridge group grants, and apt packages (Wireshark, Nmap, GNS3, draw.io). At the end it prints the exact commands for each of those, for you to run by hand if you want a fully clean host.
+Because OpenPLC and ScadaBR are containers instead of host installs, there's no systemd unit, no `/opt` install, and no Tomcat/JVM process left running afterward — `docker compose down` removes them completely. Only the built Docker images, the wireshark/ubridge group grants, and apt packages (Wireshark, Nmap, GNS3, draw.io) stay in place on their own. At the end it prints the exact commands for each of those, for you to run by hand if you want a fully clean host.
 
 ---
 
@@ -39,7 +40,6 @@ Everything lands in `~/oceon-lab/`:
 ```
 ~/oceon-lab/
 ├── venv/                       ← Python virtual environment (pymodbus, rich)
-├── OpenPLC_v3/                 ← cloned source, installed manually (see checklist)
 ├── evolve-power-programs/
 │   └── palanca_motor_feeder.st ← PLC program you load into OpenPLC
 ├── diagrams/
@@ -47,7 +47,7 @@ Everything lands in `~/oceon-lab/`:
 └── palanca_poll.py             ← Modbus polling helper (Lab 1)
 ```
 
-A Wireshark colour profile (**Evolve-Power**) and a ScadaBR desktop shortcut are also installed.
+OpenPLC and ScadaBR themselves run as containers, built from `docker/docker-compose.yml` in this folder (not under `~/oceon-lab/`) — see `docker compose -f docker/docker-compose.yml ps` / `logs`. A Wireshark colour profile (**Evolve-Power**) and a ScadaBR desktop shortcut are also installed.
 
 | Service | Port |
 |---|---|
@@ -75,6 +75,8 @@ sudo wireshark -i lo -k -Y "tcp.port == 502"
 ```
 Apply the lab colour profile: *Edit → Configuration Profiles → Evolve-Power*.
 (If colours look wrong under a dark GTK theme: `GTK_THEME=Adwaita:light sudo -E wireshark ...`)
+
+OpenPLC runs in a container, but `-i lo` still works: Docker's userland-proxy accepts your loopback connection to `127.0.0.1:502` directly before relaying it into the container, so the client-side traffic really is on `lo`. If a host has that proxy disabled (`userland-proxy=false` in the Docker daemon config) and you see nothing, try `-i docker0` or `-i any` instead.
 
 **Bonus — service fingerprint:**
 ```bash
@@ -104,8 +106,10 @@ Module-specific quick hits — for anything else, see the [repository-level Trou
 
 **Wireshark can't capture on `lo`** — log out and back in so the `wireshark` group membership takes effect, or run `newgrp wireshark` in your current terminal.
 
-**ScadaBR won't start** — `sudo /opt/ScadaBR/tomcat/bin/startup.sh`, wait ~15s, then open http://localhost:9090/ScadaBR. Check `ss -tlnp | grep 9090` if it still doesn't respond.
+**ScadaBR won't start** — `docker compose -f docker/docker-compose.yml up -d scadabr`, wait ~15s, then open http://localhost:9090/ScadaBR. Check `docker compose -f docker/docker-compose.yml logs scadabr` if it still doesn't respond.
+
+**OpenPLC web UI / Modbus port not responding** — check `docker compose -f docker/docker-compose.yml ps` (both `openplc` and `scadabr` should show `running`) and `docker compose -f docker/docker-compose.yml logs openplc`. Restart with `docker compose -f docker/docker-compose.yml restart openplc`.
 
 **GNS3 missing after setup** — the GNS3 PPA is Ubuntu-only and doesn't always publish for the newest release; the script warns and continues without blocking the rest of your environment. Install it manually per the link the script prints, whenever you get to the GNS3-based topology labs.
 
-**OpenPLC install fails with a CMake error** (`Compatibility with CMake < 3.5 has been removed`, ending in `Error installing OpenDNP3` / `OpenPLC was NOT installed!`) — OpenPLC bundles an old OpenDNP3 build that current CMake (4.x, shipped by Kali rolling and eventually newer Ubuntu) refuses to configure. The post-install checklist's Step 2 command already includes the fix (`sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux`) — if you typed `sudo bash install.sh linux` without that, re-run with the full command instead of trying to repair the partial install.
+**Only one of Module 0 / Module 1's PLC+SCADA stacks can run at a time** — both publish the same host ports (502/8080/8443/9090). If you're switching between modules, tear one down first: `sudo bash teardown.sh` here, or the equivalent in `Module_01/`, before starting the other.

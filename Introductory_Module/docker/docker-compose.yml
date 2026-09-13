@@ -1,0 +1,44 @@
+# ============================================================================
+# OCEON Module 0 — Evolve Power / Palanca SCADA — OpenPLC + ScadaBR
+# ============================================================================
+# Replaces the old host installs at /opt/OpenPLC_v3 and /opt/ScadaBR. Same
+# ports as before (502/8080/8443/9090) so existing lab scripts and README
+# instructions that hardcode 127.0.0.1 keep working unchanged.
+#
+# Pinned so container/network names are stable regardless of the checkout
+# path (see Module_2_Lab_Setup/docker-compose.yml for the same reasoning).
+name: oceon-m0
+
+services:
+
+  openplc:
+    build:
+      context: .
+      dockerfile: Dockerfile.openplc
+    container_name: oceon-m0-openplc
+    hostname: openplc
+    ports:
+      - "502:502"     # Modbus/TCP — Lab 1 capture target
+      - "8080:8080"   # Web UI (openplc / openplc)
+      - "8443:8443"   # REST API (self-signed TLS)
+    volumes:
+      - openplc-data:/opt/OpenPLC_v3
+    restart: unless-stopped
+
+  scadabr:
+    build:
+      context: .
+      dockerfile: Dockerfile.scadabr
+    container_name: oceon-m0-scadabr
+    hostname: scadabr
+    ports:
+      - "9090:8080"   # ScadaBR HMI (admin / admin)
+    volumes:
+      - scadabr-data:/opt/ScadaBR/database
+    depends_on:
+      - openplc
+    restart: unless-stopped
+
+volumes:
+  openplc-data:
+  scadabr-data:

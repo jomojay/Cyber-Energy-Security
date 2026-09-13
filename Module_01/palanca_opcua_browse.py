@@ -40,7 +40,7 @@ def browse_node(client: Client, node, indent: int = 0):
                 value    = node.get_value()
                 datatype = node.get_data_type_as_variant_type()
                 access   = node.get_access_level()
-                writable = "READ-WRITE" if ua.AccessLevel.CurrentWrite in ua.AccessLevel(access) else "READ-ONLY"
+                writable = "READ-WRITE" if ua.AccessLevel.CurrentWrite in access else "READ-ONLY"
                 print(f"{prefix}[VAR] {name:<20} = {str(value):<15} "
                       f"({datatype.name}, {writable})")
             except Exception as e:
@@ -58,7 +58,12 @@ def browse_node(client: Client, node, indent: int = 0):
 def get_security_info(client: Client) -> dict:
     """Extract security policy details from the server."""
     try:
-        endpoints = client.get_endpoints()
+        # Called before client.connect() (Lab 4 wants the security policy
+        # shown before the "real" session is established) — plain
+        # get_endpoints() needs an already-open channel and raises
+        # "'NoneType' object has no attribute 'send_request'" without one.
+        # This does its own connect/query/disconnect in one shot instead.
+        endpoints = client.connect_and_get_server_endpoints()
         info = {
             "endpoint_url": OPC_ENDPOINT,
             "policies": [],
@@ -106,7 +111,7 @@ def main():
     print("=" * 60)
 
     client = Client(OPC_ENDPOINT)
-    client.set_session_timeout(30000)
+    client.session_timeout = 30000
 
     # ── LAB 4 QUESTION 4: Security policy ────────────────────────
     print_section("1. Security Information (Lab 4 Q4)")

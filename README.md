@@ -11,12 +11,14 @@ Cyber-Energy-Security/
 ├── README.md                        ← you are here
 ├── Introductory_Module/
 │   ├── README.md                    ← Module 0 trainee guide
-│   ├── oceon_m0_lab_setup.sh        ← Module 0 environment setup (installs onto the host)
-│   └── teardown.sh                  ← stops services and removes the Module 0 lab
+│   ├── oceon_m0_lab_setup.sh        ← Module 0 environment setup (host tools + PLC/SCADA containers)
+│   ├── teardown.sh                  ← stops services and removes the Module 0 lab
+│   └── docker/                      ← OpenPLC + ScadaBR containers (docker-compose.yml, Dockerfiles)
 ├── Module_01/
 │   ├── README.md                    ← Module 1 trainee guide
-│   ├── setup_lab_env.sh             ← Module 1 environment setup (installs onto the host)
+│   ├── setup_lab_env.sh             ← Module 1 environment setup (host tools + PLC/SCADA containers)
 │   ├── teardown.sh                  ← stops services and removes the Module 1 lab
+│   ├── docker/                      ← OpenPLC + ScadaBR containers (docker-compose.yml, Dockerfiles)
 │   ├── palanca_modbus_read.py       ← Lab 3 trainee template (Modbus/TCP)
 │   ├── palanca_modbus_monitor.py    ← Lab 3 extension (anomaly thresholds)
 │   ├── palanca_opcua_server.py      ← Lab 4 OPC-UA server simulator
@@ -42,8 +44,10 @@ Cyber-Energy-Security/
 Each module directory is self-contained and has its own `README.md` with step-by-step instructions for that module's labs. Navigate to your module folder, read its README, and run its setup script before attempting the labs. This top-level README covers what's common across all modules — requirements, Kali notes, and troubleshooting that applies everywhere.
 
 **Two different setup models are in use, and it matters which one your module uses:**
-- **Introductory_Module / Module_01** install tools and services directly onto your host OS (apt packages, a compiled OpenPLC runtime, ScadaBR).
-- **Module_2_Lab_Setup** runs everything in Docker containers — nothing touches your host beyond Docker itself, and `./teardown.sh` leaves your machine exactly as it was.
+- **Introductory_Module / Module_01** install desktop/CLI tools directly onto your host OS (Wireshark, Nmap, GNS3, draw.io, Python libraries), but run the PLC and SCADA HMI (OpenPLC + ScadaBR) as Docker containers — `sudo bash teardown.sh` (or plain `bash teardown.sh` for Module_01) removes those containers completely, no leftover process or `/opt` install.
+- **Module_2_Lab_Setup** runs everything in Docker containers, including the tools you work from (`eng-ws-01`) — nothing touches your host beyond Docker itself, and `./teardown.sh` leaves your machine exactly as it was.
+
+All three modules need Docker installed — see **Module 2 requirements (Docker)** below, which applies to all of them despite the heading.
 
 ---
 
@@ -56,7 +60,7 @@ Each module directory is self-contained and has its own `README.md` with step-by
 | Disk | 20 GB free |
 | Network | Internet access during setup (GitHub, distro package mirrors) |
 
-This table is the baseline for **Introductory_Module** and **Module_01**, which install onto the host. **Module_2_Lab_Setup** has a different, lighter requirement — see below.
+This table is the baseline for **Introductory_Module** and **Module_01**'s host-installed tools. All three modules additionally need Docker — see **Docker requirements** below.
 
 The setup scripts detect which of these two you're on (via `/etc/os-release`) and adjust automatically — you don't need to pass a flag or edit anything.
 
@@ -69,19 +73,21 @@ The scripts run the same way on Kali as on Ubuntu, with two differences worth kn
 - **GNS3** ships from an Ubuntu-only PPA. On Kali the scripts fall back to installing `gns3-server`/`gns3-gui` from Kali's own repos if available there; if not, they print a manual-install link and continue — GNS3 is never a hard requirement for the rest of the lab to work.
 - Package names (`wireshark`, `tshark`, `nmap`, `python3-venv`, etc.) are identical between Kali and Ubuntu, so everything else installs the same way on both.
 
-If you're running Kali as your primary pentest distro rather than a dedicated lab VM, consider running the setup scripts inside a disposable VM or container — they install and enable system services (OpenPLC, ScadaBR) that you may not want persisting on your main box.
+If you're running Kali as your primary pentest distro rather than a dedicated lab VM, consider running the setup scripts inside a disposable VM anyway — GNS3/Wireshark/draw.io still install directly onto whatever host you run them on, even though OpenPLC and ScadaBR no longer do.
 
-### Module 2 requirements (Docker)
+### Docker requirements (all modules)
 
-Module 2 doesn't need the apt packages above at all. The only prerequisite is:
+Every module needs Docker — Module_2_Lab_Setup runs its entire topology in containers, and Introductory_Module/Module_01 run OpenPLC + ScadaBR as containers. The prerequisite is the same everywhere:
 
 | Requirement | Minimum |
 |---|---|
 | Docker Engine | Any recent version with the Compose v2 plugin (`docker compose version` must work) |
-| RAM | 4 GB free for the container stack (12 lightweight containers) |
-| Disk | ~2 GB for images |
+| RAM | 4 GB free for whichever module's containers are running |
+| Disk | ~2 GB for Module 2's images; OpenPLC's build (Introductory_Module/Module_01) adds a few hundred MB more |
 
-Install Docker via the [official instructions](https://docs.docker.com/engine/install/) — the same steps work on both Ubuntu and Kali (Kali is Debian-based, and Docker's official Debian repo installs cleanly on it; no PPA involved). If you're already using Kali for pentesting, Docker is very likely already installed.
+Install Docker via the [official instructions](https://docs.docker.com/engine/install/) — the same steps work on both Ubuntu and Kali (Kali is Debian-based, and Docker's official Debian repo installs cleanly on it; no PPA involved). If you're already using Kali for pentesting, Docker is very likely already installed. Your user needs to be in the `docker` group (`sudo usermod -aG docker $USER`, then log out and back in) since none of these setup scripts run `docker` via `sudo`.
+
+Only one of Introductory_Module / Module_01's PLC+SCADA stacks can run at a time — both publish the same host ports (502/8080/8443/9090). Tear one down (`teardown.sh`) before standing up the other.
 
 ---
 
@@ -110,7 +116,7 @@ Each module has its own setup script inside its folder, and **each is invoked di
 | Module_01 | `setup_lab_env.sh` | `bash setup_lab_env.sh` (no `sudo`) |
 | Module_2_Lab_Setup | `setup.sh` | `./setup.sh` (no `sudo`) |
 
-Each of these has a matching `teardown.sh` in the same folder, invoked the same way (`sudo bash teardown.sh` for Introductory_Module, plain `bash teardown.sh` for Module_01, `./teardown.sh` for Module_2_Lab_Setup). Introductory_Module and Module_01's teardown scripts always stop the OpenPLC/ScadaBR services and remove everything created under your home directory. They also always remove the OpenPLC systemd unit specifically — that unit name (`openplc.service`) is shared between the two modules' OpenPLC installs, so a stopped-but-still-registered unit left by one module can silently keep serving stale requests through the other module's fresh build; the unit is cheap to remove since it's rewritten fresh on every install anyway. Everything else — the `/opt` installs themselves, group grants, apt/pip packages — is left in place on its own; the scripts print the exact commands for each at the end, for you to run by hand if you want a fully clean host.
+Each of these has a matching `teardown.sh` in the same folder, invoked the same way (`sudo bash teardown.sh [-v]` for Introductory_Module, `bash teardown.sh [-v]` for Module_01, `./teardown.sh [-v]` for Module_2_Lab_Setup). Introductory_Module and Module_01's teardown scripts always stop and remove the OpenPLC + ScadaBR containers (`docker compose down`) and remove everything created under your home directory. Because OpenPLC and ScadaBR are containers, not host installs, there's no systemd unit or `/opt` install left behind afterward — pass `-v` to also wipe their Docker volumes (uploaded PLC program, ScadaBR data source config) for a full reset. Only the built Docker images, group grants, and apt/pip packages are left in place on their own; the scripts print the exact commands for each at the end, for you to run by hand if you want a fully clean host.
 
 - **`oceon_m0_lab_setup.sh` must be run with `sudo bash`, as your normal user account.** It needs root for the whole run and uses `$SUDO_USER` to set correct file ownership. Do **not** log in as root or use `sudo su` first — `$SUDO_USER` is empty in that case and the script will refuse to run.
 - **`setup_lab_env.sh` must be run *without* `sudo`.** It calls `sudo` itself for the individual commands that need root, and otherwise installs lab files under your own `$HOME`. Running the whole script with `sudo bash` makes every path resolve under `/root` instead of your home directory, and you'll get sudo password prompts partway through the run either way — so just run it plain.
@@ -120,7 +126,7 @@ The scripts are **idempotent**: safe to re-run if a step fails or you need to re
 
 **4. Follow what the script prints at the end**
 
-For Introductory_Module / Module_01, that's a checklist of manual steps (log out/in for group changes, one-time installs that require interactive prompts, browser configuration, etc.) — complete them in order before starting the labs. For Module_2_Lab_Setup, `setup.sh` instead prints your working point directly: `docker exec -it eng-ws-01 bash` — no manual steps needed, you're ready for Lab Day 1 immediately.
+For Introductory_Module / Module_01, that's a checklist of manual steps (log out/in for group changes, loading the PLC program via the OpenPLC web UI, wiring ScadaBR to OpenPLC, etc.) — complete them in order before starting the labs. OpenPLC and ScadaBR themselves are already built and running by the time the script finishes; nothing further to install. For Module_2_Lab_Setup, `setup.sh` instead prints your working point directly: `docker exec -it eng-ws-01 bash` — no manual steps needed, you're ready for Lab Day 1 immediately.
 
 **5. Open that module's own README for the lab walkthrough**
 
@@ -137,13 +143,18 @@ Each module folder has a `README.md` with step-by-step instructions for every la
 | **Wireshark / tshark** | Protocol capture and analysis (Modbus/TCP, OPC-UA, DNP3) |
 | **Nmap** | Network and service fingerprinting |
 | **GNS3** | OT/ICS network topology simulation (Purdue model labs) |
-| **OpenPLC Runtime** | Soft PLC simulating field devices (S7-1200, ladder logic) |
-| **ScadaBR** | SCADA HMI for the simulated plant |
 | **pymodbus** | Python Modbus/TCP client for scripted register polling |
 | **opcua** | Python OPC-UA client and server (address space browsing, Module 1+) |
 | **pyshark** | Python wrapper for tshark — programmatic packet analysis |
 | **scapy** | Packet crafting and pcap generation |
 | **draw.io** | Network and architecture diagramming |
+
+**Introductory_Module / Module_01** run these as Docker containers instead (built by the same setup script, from a `docker/` folder in each module):
+
+| Tool | Purpose |
+|---|---|
+| **OpenPLC Runtime** | Soft PLC simulating field devices (S7-1200, ladder logic) |
+| **ScadaBR** | SCADA HMI for the simulated plant |
 
 **Module_2_Lab_Setup** installs nothing on your host — Docker is the only tool you need there. Every device in the topology (PLCs, RTUs, protection relays, VFD, HMIs, the core switch, the historian) is its own container, and the `eng-ws-01` container you work from already has Nmap, tshark, tcpdump, an SSH client, pymodbus, and opcua pre-installed — see [Module_2_Lab_Setup/README.md](Module_2_Lab_Setup/README.md) for the full device map.
 
@@ -205,10 +216,10 @@ Log out and back in after the setup script completes so the `wireshark` group ta
 Switch your VM network adapter from Bridged to NAT, then re-run the script.
 
 **ScadaBR won't start / port conflict**
-The script patches ScadaBR to port 9090. If you still see a conflict, check what is on that port: `ss -tlnp | grep 9090`. OpenPLC runs on 8080; the two should not collide.
+ScadaBR runs as a container publishing to host port 9090, and OpenPLC's web UI is a separate container on 8080 — they no longer share a network namespace to collide in. Check `docker compose -f docker/docker-compose.yml ps` and `docker compose -f docker/docker-compose.yml logs scadabr` (run from the module folder).
 
 **OPC-UA port 4840 not listening (Module 1 Lab 4)**
-Both setup scripts install ScadaBR automatically now, and it's the preferred OPC-UA/HMI source — port 4840 only matters if ScadaBR failed to install (check the setup script's `[FAIL]`/`[WARN]` output). In that case, start the Python fallback instead: `python3 ~/palanca_labs/module1/scripts/palanca_opcua_server.py`. Verify with `ss -tlnp | grep 4840`.
+Both setup scripts run ScadaBR automatically now, and it's the preferred OPC-UA/HMI source — port 4840 only matters if the ScadaBR container failed to build/start (check the setup script's `[FAIL]`/`[WARN]` output, or `docker compose -f docker/docker-compose.yml logs scadabr`). In that case, start the Python fallback instead: `python3 ~/palanca_labs/module1/scripts/palanca_opcua_server.py`. Verify with `ss -tlnp | grep 4840`.
 
 **A check fails in the verification summary**
 Re-run the script — it is idempotent and will skip steps that already succeeded. If the same step fails again, check the `[WARN]` output for the specific error and the manual remediation hint printed there.
@@ -217,7 +228,7 @@ Re-run the script — it is idempotent and will skip steps that already succeede
 `docker` or the `docker compose` v2 plugin isn't installed — the script checks for both up front and prints a link. If you get a permission error instead, your user isn't in the `docker` group yet (`sudo usermod -aG docker $USER`, then log out and back in).
 
 **Module 2: Nmap finds an extra, unexplained host responding on 502/22/80/etc.** *(worth knowing if you're running Module 0/1 and Module 2 on the same machine)*
-That's not a lab device — it's your own host. `192.168.1.254`/`192.168.2.254` are the Docker networks' gateway addresses, and Docker routes any host-side service listening on `0.0.0.0` through them. This shows up if Module 0/1's OpenPLC Runtime (which also binds port 502 on `0.0.0.0`) is still running from an earlier session — stop it with `sudo systemctl stop openplc`, or leave it as a live demonstration of host/container network boundaries.
+That's not a lab device — it's your own host. `192.168.1.254`/`192.168.2.254` are the Docker networks' gateway addresses, and Docker routes any host-side service listening on `0.0.0.0` through them. This shows up if Module 0/1's OpenPLC container (which also publishes port 502 to the host) is still running from an earlier session — stop it with `docker compose -f docker/docker-compose.yml down` in that module's folder, or leave it as a live demonstration of host/container network boundaries.
 
 **Module 2: individual troubleshooting** (health check failures, no traffic in a capture, rebuilding after an edit) is covered in [Module_2_Lab_Setup/README.md](Module_2_Lab_Setup/README.md#troubleshooting).
 

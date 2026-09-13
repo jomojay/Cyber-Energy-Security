@@ -1,0 +1,56 @@
+# ============================================================================
+# OpenPLC Runtime v3 — containerized (was a host install to /opt/OpenPLC_v3
+# registered as systemd unit "openplc.service"; see git history of
+# ../setup_lab_env.sh for the original host-install steps this mirrors).
+# ============================================================================
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Same build dependencies the host setup scripts installed for this exact
+# clone+install.sh flow (Introductory_Module/oceon_m0_lab_setup.sh and
+# Module_01/setup_lab_env.sh), plus git/cmake/build-essential which the
+# host already had from its own base-package step.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    build-essential cmake git pkg-config bison flex autoconf \
+    libglib2.0-dev libboost-all-dev sqlite3 libsqlite3-dev \
+    python3 python3-pip ca-certificates sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# install.sh may probe for systemd (systemctl/service) to register/enable
+# openplc.service — there's no init system inside a Docker build, so a real
+# systemctl would either hang or fail the RUN step. These no-op shims make
+# any such probe a harmless success; the container's own CMD (below) starts
+# the runtime directly instead of going through systemd.
+RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/systemctl \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/service \
+    && chmod +x /usr/local/bin/systemctl /usr/local/bin/service
+
+# Same repo + same CMAKE_POLICY_VERSION_MINIMUM=3.5 workaround the host
+# scripts use for OpenPLC's bundled OpenDNP3 failing to configure under
+# CMake 4.x.
+#
+# The clone itself is wrapped in a retry loop and forced onto HTTP/1.1:
+# GitHub's HTTP/2 transfer of this repo intermittently resets mid-clone on
+# some networks ("HTTP/2 stream ... was not closed cleanly: CANCEL" /
+# "RPC failed; curl 92") — a transport-level flake unrelated to the repo
+# itself, and no plain retry on HTTP/2 reliably avoids it, but HTTP/1.1
+# does not multiplex the connection the same way and doesn't exhibit it.
+RUN git config --global http.version HTTP/1.1 \
+    && for i in 1 2 3 4 5; do \
+         rm -rf /opt/OpenPLC_v3; \
+         git clone --depth=1 https://github.com/thiagoralves/OpenPLC_v3.git /opt/OpenPLC_v3 && break; \
+         echo "clone attempt $i failed, retrying..."; sleep 5; \
+       done \
+    && cd /opt/OpenPLC_v3 \
+    && CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux \
+    && test -f start_openplc.sh || (echo "install.sh did not produce start_openplc.sh — OpenPLC install failed" >&2; exit 1)
+
+WORKDIR /opt/OpenPLC_v3
+
+EXPOSE 502 8080 8443
+
+# start_openplc.sh is the exact script the host scripts' systemd unit uses
+# as ExecStart under Type=simple — i.e. it already runs in the foreground
+# by contract, which is exactly what a container's main process needs.
+CMD ["bash", "start_openplc.sh"]

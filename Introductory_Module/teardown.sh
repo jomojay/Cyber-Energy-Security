@@ -3,22 +3,24 @@
 # OCEON LAB ENVIRONMENT TEARDOWN — Module 0: Introduction to Energy Cyber Security
 # Case Study: Evolve Power (Palanca SCADA)
 # Reverses: oceon_m0_lab_setup.sh
-# Run as: sudo bash teardown.sh   (same invocation as the setup script)
-# Idempotent: safe to re-run.
+# Run as: sudo bash teardown.sh [-v]   (same invocation as the setup script)
+# Idempotent: safe to re-run. Pass -v to also wipe the OpenPLC/ScadaBR
+# Docker volumes (uploaded PLC program, ScadaBR data source config).
 #
-# Always stops the ScadaBR / OpenPLC services if running, removes the
-# OpenPLC systemd unit (see note below on why that one isn't opt-in), and
-# removes everything the setup script created under the trainee's home
+# Stops and removes the OpenPLC + ScadaBR containers (docker compose down),
+# and removes everything the setup script created under the trainee's home
 # directory (lab files, venv, Wireshark profile, desktop shortcut).
 #
-# It never touches other shared, host-wide state on its own: the
-# /opt/ScadaBR install, group memberships, and apt packages are all left
-# in place. At the end it prints the exact commands to remove each of
-# those, for the trainee to run by hand if they want a fully clean host —
+# It never touches other shared, host-wide state on its own: the built
+# Docker images, group memberships, and apt packages are all left in
+# place. At the end it prints the exact commands to remove each of those,
+# for the trainee to run by hand if they want a fully clean host —
 # nothing destructive happens to them without you typing it.
 # =============================================================================
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'
 BLU='\033[0;34m'; CYN='\033[0;36m'; NC='\033[0m'
@@ -51,46 +53,28 @@ DESKTOP="$REAL_HOME/Desktop"
 log "Tearing down for user: $REAL_USER (home: $REAL_HOME)"
 
 # =============================================================================
-# 1. STOP RUNNING SERVICES / PROCESSES
+# 1. STOP AND REMOVE THE PLC + SCADA CONTAINERS
 # =============================================================================
-hdr "1 — Stopping services"
+# OpenPLC and ScadaBR run as containers (docker/docker-compose.yml) instead
+# of being installed onto the host, so a single 'docker compose down' fully
+# removes both — no leftover systemd unit, no leftover Tomcat/JVM process
+# surviving the session like the old host-install approach left behind.
+# Pass -v to this script to also wipe the named volumes (uploaded PLC
+# program, ScadaBR data source config) for a completely clean slate.
+hdr "1 — Stopping PLC + SCADA containers"
 
-if [[ -x /opt/ScadaBR/tomcat/bin/shutdown.sh ]]; then
-    /opt/ScadaBR/tomcat/bin/shutdown.sh &>/dev/null || true
-    ok "ScadaBR Tomcat stopped"
-else
-    ok "ScadaBR not running (no shutdown.sh found)"
-fi
+COMPOSE_FILE="$SCRIPT_DIR/docker/docker-compose.yml"
 
-# OpenPLC is built manually per the post-install checklist (Step 2) and its
-# own installer registers a systemd service named "openplc" — stop and
-# disable it if present.
-if systemctl list-units --full -all 2>/dev/null | grep -q "openplc.service"; then
-    systemctl stop openplc 2>/dev/null || true
-    systemctl disable openplc 2>/dev/null || true
-    ok "OpenPLC service stopped and disabled"
+if command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    if [[ "${1:-}" == "-v" ]]; then
+        docker compose -f "$COMPOSE_FILE" down -v
+        ok "OpenPLC + ScadaBR containers and volumes removed"
+    else
+        docker compose -f "$COMPOSE_FILE" down
+        ok "OpenPLC + ScadaBR containers removed (volumes kept — pass -v to wipe them too)"
+    fi
 else
-    ok "OpenPLC service not registered (nothing to stop)"
-fi
-
-# openplc.service is a single, system-wide unit name shared by every OCEON
-# module that installs OpenPLC — this manual install and Module_01's
-# automated one both invoke the same upstream installer, which always
-# registers a service under this exact name. Unlike the ~/oceon-lab clone
-# removed below, the unit file itself holds no build state and is
-# rewritten fresh on every install, so it's safe to always remove it (not
-# opt-in): leaving a stopped-but-present unit around is what let a stale
-# process from a PRIOR install keep serving requests through a later
-# rebuild — systemd only replaces a unit's running process on 'restart',
-# never on a plain 'start' against an already-active unit, so a leftover
-# unit pointed at a now-deleted directory silently wins over whatever was
-# just built.
-if [[ -f /usr/lib/systemd/system/openplc.service || -f /lib/systemd/system/openplc.service ]]; then
-    rm -f /usr/lib/systemd/system/openplc.service /lib/systemd/system/openplc.service
-    systemctl daemon-reload
-    ok "Removed OpenPLC systemd unit (prevents it colliding with another module's install)"
-else
-    ok "No OpenPLC systemd unit file present"
+    warn "Docker/compose not found — skipping container teardown (nothing to do if setup never ran)"
 fi
 
 if pkill -u "$REAL_USER" -f "palanca_poll.py" 2>/dev/null; then
@@ -106,7 +90,7 @@ hdr "2 — Removing lab files"
 
 if [[ -d "$LAB" ]]; then
     rm -rf "$LAB"
-    ok "Removed $LAB (venv, OpenPLC clone, PLC programs, diagrams, palanca_poll.py)"
+    ok "Removed $LAB (venv, PLC programs, diagrams, palanca_poll.py)"
 else
     ok "$LAB already absent"
 fi
@@ -130,18 +114,18 @@ fi
 # SUMMARY
 # =============================================================================
 hdr "Done"
-ok "Module 0 lab environment removed for $REAL_USER (ScadaBR/OpenPLC stopped, OpenPLC unit removed)."
+ok "Module 0 lab environment removed for $REAL_USER (OpenPLC + ScadaBR containers stopped and removed)."
 echo ""
 echo -e "${CYN}Nothing shared/host-wide was touched. If you also want a fully clean${NC}"
 echo -e "${CYN}host, here's what's still in place and the commands to remove it:${NC}"
 echo ""
-echo -e "${CYN}ScadaBR install (/opt/ScadaBR):${NC}"
-echo "  sudo rm -rf /opt/ScadaBR"
+echo -e "${CYN}Built Docker images (openplc/scadabr, ~a few hundred MB):${NC}"
+echo "  docker compose -f $SCRIPT_DIR/docker/docker-compose.yml down --rmi all"
 echo ""
 echo -e "${CYN}wireshark/ubridge group membership (added for $REAL_USER):${NC}"
 echo "  sudo gpasswd -d $REAL_USER wireshark"
 echo "  sudo gpasswd -d $REAL_USER ubridge"
 echo ""
-echo -e "${CYN}apt packages (Wireshark, Nmap, GNS3, draw.io, Java):${NC}"
-echo "  sudo apt-get purge -y wireshark tshark gns3-server gns3-gui drawio default-jre-headless"
+echo -e "${CYN}apt packages (Wireshark, Nmap, GNS3, draw.io):${NC}"
+echo "  sudo apt-get purge -y wireshark tshark gns3-server gns3-gui drawio"
 echo "  sudo apt-get autoremove -y"

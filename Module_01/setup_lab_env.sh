@@ -9,10 +9,11 @@
 # ================================================================
 set -euo pipefail
 
-# Captured before anything below ever cd's away (Step 3's OpenPLC clone
-# changes into /tmp and doesn't come back) — computing this later, from
-# a relative $0 like "setup_lab_env.sh", would resolve against whatever
-# the cwd happens to be at that point instead of this script's own folder.
+# Captured before anything below ever cd's away — computing this later,
+# from a relative $0 like "setup_lab_env.sh", would resolve against
+# whatever the cwd happens to be at that point instead of this script's
+# own folder, and the OpenPLC/ScadaBR docker-compose stack lives at a
+# fixed path relative to this file, not to the caller's cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -74,12 +75,8 @@ PKGS=(
     python3 python3-pip python3-venv
     nmap wireshark tshark
     net-tools curl wget git unzip
-    build-essential cmake pkg-config
-    bison flex autoconf
-    libpcap-dev libssl-dev sqlite3 libsqlite3-dev libboost-all-dev
-    default-jre-headless   # ScadaBR dependency — portable metapackage,
-                            # not a hardcoded version that can vanish
-                            # from a rolling distro's repos
+    build-essential pkg-config
+    libpcap-dev libssl-dev
 )
 
 for pkg in "${PKGS[@]}"; do
@@ -105,7 +102,32 @@ fi
 
 # ── STEP 2: Python libraries ─────────────────────────────────────
 log_step "STEP 2: Python libraries"
-PYLIBS=(pymodbus opcua pyshark scapy)
+
+# pymodbus is pinned, not just "installed if missing" like the others below:
+# every lab script here (palanca_modbus_read.py, palanca_modbus_monitor.py,
+# palanca_opcua_server.py) calls read_holding_registers()/read_coils()/etc.
+# with the slave= keyword. pymodbus 3.9+ renamed that to device_id=, so an
+# unpinned 'pip3 install pymodbus' silently picks up whatever the latest
+# release is and every one of those calls fails with "unexpected keyword
+# argument 'slave'" the moment it runs — not a bug in the scripts, a version
+# drift bug. Pinned to the same 3.6.9 Introductory_Module's venv already
+# uses for this exact reason. The check compares the installed version, not
+# just whether pymodbus imports, so a stale newer version gets corrected on
+# a re-run instead of being reported as "already installed".
+PYMODBUS_VERSION="3.6.9"
+CURRENT_PYMODBUS=$(python3 -c "import pymodbus; print(pymodbus.__version__)" 2>/dev/null || echo "")
+if [[ "$CURRENT_PYMODBUS" == "$PYMODBUS_VERSION" ]]; then
+    log_ok "pymodbus $PYMODBUS_VERSION already installed"
+else
+    log_info "Installing pymodbus==$PYMODBUS_VERSION (found: ${CURRENT_PYMODBUS:-none})..."
+    if pip3 install "pymodbus==$PYMODBUS_VERSION" --break-system-packages -q 2>/dev/null; then
+        log_ok "pymodbus $PYMODBUS_VERSION installed"
+    else
+        log_fail "pymodbus==$PYMODBUS_VERSION — pip install failed"
+    fi
+fi
+
+PYLIBS=(opcua pyshark scapy)
 for lib in "${PYLIBS[@]}"; do
     if python3 -c "import ${lib//-/_}" 2>/dev/null; then
         VER=$(python3 -c "import ${lib//-/_}; print(${lib//-/_}.__version__)" 2>/dev/null || echo "unknown")
@@ -120,161 +142,59 @@ for lib in "${PYLIBS[@]}"; do
     fi
 done
 
-# ── STEP 3: OpenPLC Runtime ──────────────────────────────────────
-log_step "STEP 3: OpenPLC Runtime (Modbus server)"
-OPENPLC_DIR="/opt/OpenPLC_v3"
+# ── STEP 3: PLC + SCADA stack — OpenPLC + ScadaBR (Docker) ────────
+# Both run as containers (see docker/docker-compose.yml) instead of being
+# compiled/installed onto the host. This is what makes teardown.sh able to
+# fully remove them with 'docker compose down' — no leftover /opt install,
+# no leftover systemd unit, no leftover Tomcat/JVM process surviving a
+# session, unlike the old host-install approach.
+log_step "STEP 3: PLC + SCADA stack: OpenPLC + ScadaBR (Docker)"
 
-# OpenPLC's own install.sh treats the directory it's run FROM as its
-# permanent home: it hardcodes WorkingDirectory=$PWD into the systemd
-# unit it creates itself, and bakes that same path into the
-# start_openplc.sh launcher it generates. It does not "install"
-# anywhere else — the clone location IS the install. So this has to
-# clone straight into /opt/OpenPLC_v3 and run install.sh from there.
-# (An earlier version of this script staged the clone in /tmp instead
-# and checked for /opt/OpenPLC_v3 here for idempotency — since nothing
-# ever created that path, every re-run wiped and rebuilt /tmp/OpenPLC_v3
-# out from under the still-running service, corrupting its database —
-# "Error Opening the DB" after login was the symptom.)
-if [[ -f "$OPENPLC_DIR/start_openplc.sh" ]] && systemctl list-unit-files 2>/dev/null | grep -q '^openplc\.service'; then
-    log_ok "OpenPLC found at $OPENPLC_DIR"
-elif [[ -f "$OPENPLC_DIR/start_openplc.sh" ]]; then
-    # The build is already there but the systemd unit isn't — e.g.
-    # teardown.sh removed the unit (it always does, to prevent collisions
-    # with Introductory_Module's OpenPLC install) while intentionally
-    # leaving /opt/OpenPLC_v3 itself in place. Recreate just the unit —
-    # identical to what OpenPLC's own install.sh writes — rather than
-    # paying for a full rebuild.
-    log_info "OpenPLC found at $OPENPLC_DIR but its systemd unit is missing — recreating it..."
-    sudo tee /usr/lib/systemd/system/openplc.service > /dev/null <<SVC
-[Unit]
-Description=OpenPLC Service
-After=network.target
+DOCKER_DIR="$SCRIPT_DIR/docker"
+COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
 
-[Service]
-Type=simple
-Restart=always
-RestartSec=1
-User=root
-Group=root
-WorkingDirectory=$OPENPLC_DIR
-ExecStart=$OPENPLC_DIR/start_openplc.sh
-
-[Install]
-WantedBy=multi-user.target
-SVC
-    sudo systemctl daemon-reload
-    sudo systemctl enable openplc.service 2>/dev/null || true
-    log_ok "Recreated OpenPLC systemd unit pointing at $OPENPLC_DIR"
+if ! command -v docker &>/dev/null; then
+    log_fail "Docker is not installed. Install Docker Engine + Compose plugin first:" \
+             "https://docs.docker.com/engine/install/"
+elif ! docker compose version &>/dev/null; then
+    log_fail "'docker compose' (v2 plugin) not found. Install the compose plugin."
 else
-    log_info "Installing OpenPLC Runtime..."
-    # Clean up any partial install from an interrupted prior run —
-    # 'git clone' refuses to clone into a non-empty directory.
-    sudo rm -rf "$OPENPLC_DIR"
-    if sudo git clone https://github.com/thiagoralves/OpenPLC_v3.git --depth=1 -q "$OPENPLC_DIR"; then
-        cd "$OPENPLC_DIR"
-        # OpenPLC vendors an old OpenDNP3 CMakeLists.txt that current
-        # CMake (4.x, shipped by Kali rolling and eventually newer
-        # Ubuntu) refuses to configure without an explicit policy
-        # floor — this env var is the workaround install.sh's own
-        # cmake error message points at.
-        sudo env CMAKE_POLICY_VERSION_MINIMUM=3.5 bash install.sh linux 2>/dev/null && log_ok "OpenPLC installed" || log_fail "OpenPLC install script failed"
-        cd - > /dev/null
+    log_info "Building OpenPLC + ScadaBR images (first run takes several minutes)..."
+    if docker compose -f "$COMPOSE_FILE" build --quiet; then
+        log_ok "Images built"
     else
-        log_fail "OpenPLC git clone failed — check internet connectivity"
+        log_fail "docker compose build failed — see output above"
     fi
-fi
 
-# install.sh (above) already created and enabled its own systemd unit
-# (openplc.service, at /lib/systemd/system) pointing at $OPENPLC_DIR —
-# nothing to create here. Use 'restart', not 'start': openplc.service is
-# a single system-wide unit name also used by Introductory_Module's manual
-# OpenPLC install, and 'start' is a no-op against an already-active unit —
-# if some earlier install (this module's or the other one's) left it
-# running, 'start' would leave that stale process serving requests forever
-# instead of the version just built here. 'restart' always relaunches.
-sudo systemctl restart openplc.service 2>/dev/null || true
-sleep 3
-
-if ss -tlnp 2>/dev/null | grep -q ':502 '; then
-    log_ok "OpenPLC Modbus server listening on port 502"
-elif ss -tlnp 2>/dev/null | grep -q ':8080 '; then
-    log_ok "OpenPLC web interface listening on port 8080"
-    log_warn "Modbus port 502 not yet active — upload a program via http://localhost:8080"
-else
-    log_warn "OpenPLC not yet responding — may need manual start: sudo systemctl start openplc"
-fi
-
-# ── STEP 4: ScadaBR (Palanca SCADA HMI) ───────────────────────────
-# Ported from Introductory_Module/oceon_m0_lab_setup.sh, adapted for
-# this script's no-sudo invocation: the whole script runs as the
-# trainee, so root is requested per-command instead of once up front.
-log_step "STEP 4: ScadaBR (Palanca SCADA HMI)"
-SCADABR_DIR="$LAB_ROOT/scadabr"
-SCADABR_INSTALL="/opt/ScadaBR"
-SCADABR_URL="https://github.com/ScadaBR/ScadaBR/releases/download/v1.2/ScadaBR_Setup_Linux.zip"
-SCADABR_TOMCAT="$SCADABR_INSTALL/tomcat/bin/startup.sh"
-
-if [[ -f "$SCADABR_TOMCAT" ]]; then
-    log_ok "ScadaBR already installed at $SCADABR_INSTALL"
-else
-    if [[ ! -f "$SCADABR_DIR/install_scadabr.sh" ]]; then
-        mkdir -p "$SCADABR_DIR"
-        log_info "Downloading ScadaBR 1.2 Linux installer..."
-        if wget -q --timeout=120 "$SCADABR_URL" -O /tmp/ScadaBR_Linux.zip; then
-            log_info "Extracting..."
-            unzip -q /tmp/ScadaBR_Linux.zip -d /tmp/scadabr_extract
-            INNER=$(find /tmp/scadabr_extract -maxdepth 1 -mindepth 1 -type d | head -1)
-            SRC=$( [[ -n "$INNER" ]] && echo "$INNER" || echo "/tmp/scadabr_extract" )
-            cp -r "$SRC"/. "$SCADABR_DIR"/
-            rm -rf /tmp/ScadaBR_Linux.zip /tmp/scadabr_extract
-            chmod +x "$SCADABR_DIR"/*.sh 2>/dev/null || true
-            log_ok "ScadaBR 1.2 extracted to $SCADABR_DIR"
-        else
-            log_fail "ScadaBR download failed:" \
-                     "wget '$SCADABR_URL' -O /tmp/ScadaBR_Linux.zip"
-        fi
+    log_info "Starting OpenPLC + ScadaBR containers..."
+    if docker compose -f "$COMPOSE_FILE" up -d; then
+        log_ok "Containers started"
     else
-        log_ok "ScadaBR installer already extracted at $SCADABR_DIR"
+        log_fail "docker compose up failed — see output above"
     fi
 
-    if [[ -f "$SCADABR_DIR/install_scadabr.sh" ]]; then
-        # Guard: installer aborts if /opt/ScadaBR exists even if empty
-        if [[ -d "$SCADABR_INSTALL" && -z "$(ls -A "$SCADABR_INSTALL" 2>/dev/null)" ]]; then
-            log_info "Removing empty $SCADABR_INSTALL from prior failed run..."
-            sudo rm -rf "$SCADABR_INSTALL"
-        fi
-
-        log_info "Running ScadaBR installer in silent mode (requires sudo)..."
-        cd "$SCADABR_DIR"
-        # silent mode skips config prompts; echo 'n' suppresses the residual
-        # "Launch now?" prompt caused by a $1 scoping bug in finishInstall()
-        echo 'n' | sudo bash install_scadabr.sh silent
-        cd - > /dev/null
-
-        if [[ -f "$SCADABR_TOMCAT" ]]; then
-            log_ok "ScadaBR installed at $SCADABR_INSTALL"
-
-            # CRITICAL: ScadaBR silent mode defaults to port 8080, which
-            # conflicts with OpenPLC's web UI. Patch to 9090 immediately.
-            SCADABR_SERVER_XML="$SCADABR_INSTALL/tomcat/conf/server.xml"
-            if sudo grep -q 'port="8080"' "$SCADABR_SERVER_XML" 2>/dev/null; then
-                sudo sed -i 's/port="8080"/port="9090"/' "$SCADABR_SERVER_XML"
-                log_ok "ScadaBR Tomcat patched to port 9090 (avoids clash with OpenPLC on 8080)"
-            fi
-        else
-            log_fail "ScadaBR install failed. Check: cat /tmp/scadabrInstall.log"
-        fi
+    sleep 3
+    if ss -tlnp 2>/dev/null | grep -q ':502 '; then
+        log_ok "OpenPLC Modbus server listening on port 502"
+    else
+        log_warn "Port 502 not yet listening — check: docker compose -f $COMPOSE_FILE logs openplc"
+    fi
+    if ss -tlnp 2>/dev/null | grep -q ':9090 '; then
+        log_ok "ScadaBR listening on port 9090"
+    else
+        log_warn "Port 9090 not yet listening — check: docker compose -f $COMPOSE_FILE logs scadabr"
     fi
 fi
 
-# Desktop shortcut
+# Desktop shortcut — brings the containers up (in case they were stopped)
+# and opens the browser, instead of the old direct Tomcat startup.sh call.
 DESKTOP="$HOME/Desktop"
 mkdir -p "$DESKTOP"
 cat > "$DESKTOP/ScadaBR-Palanca.desktop" <<EOF
 [Desktop Entry]
 Name=ScadaBR (Palanca SCADA HMI)
 Comment=Evolve Power Palanca plant SCADA simulation
-Exec=bash -c "sudo /opt/ScadaBR/tomcat/bin/startup.sh && sleep 15 && xdg-open http://localhost:9090/ScadaBR; exec bash"
+Exec=bash -c "docker compose -f $COMPOSE_FILE up -d scadabr && sleep 15 && xdg-open http://localhost:9090/ScadaBR; exec bash"
 Terminal=true
 Type=Application
 Icon=utilities-system-monitor
@@ -282,15 +202,8 @@ EOF
 chmod +x "$DESKTOP/ScadaBR-Palanca.desktop"
 log_ok "ScadaBR desktop shortcut created"
 
-# ScadaBR is the preferred OPC-UA/HMI source; the bundled Python server
-# remains available as a fallback if ScadaBR failed to install above.
-if [[ ! -f "$SCADABR_TOMCAT" ]]; then
-    log_warn "Lab 4 (OPC-UA) will use the bundled Python OPC-UA server instead:" \
-             "python3 $LAB_ROOT/scripts/palanca_opcua_server.py (see README.md, Lab 4)"
-fi
-
-# ── STEP 5: Lab directory structure ──────────────────────────────
-log_step "STEP 5: Lab directory structure"
+# ── STEP 4: Lab directory structure ──────────────────────────────
+log_step "STEP 4: Lab directory structure"
 mkdir -p "$LAB_ROOT"/{pcaps,scripts,worksheets,outputs,logs,topology}
 chmod 755 "$LAB_ROOT"
 
@@ -323,8 +236,8 @@ else
     log_warn "palanca_gen_start.st not found in $SCRIPT_DIR — copy manually"
 fi
 
-# ── STEP 6: Generate baseline PCAP ───────────────────────────────
-log_step "STEP 6: Generate Palanca baseline PCAP for Lab 5"
+# ── STEP 5: Generate baseline PCAP ───────────────────────────────
+log_step "STEP 5: Generate Palanca baseline PCAP for Lab 5"
 PCAP_FILE="$LAB_ROOT/pcaps/palanca_baseline.pcap"
 
 if [[ -f "$PCAP_FILE" ]]; then
@@ -340,8 +253,8 @@ else
     fi
 fi
 
-# ── STEP 7: Wireshark Palanca-OT profile ─────────────────────────
-log_step "STEP 7: Wireshark Palanca-OT profile"
+# ── STEP 6: Wireshark Palanca-OT profile ─────────────────────────
+log_step "STEP 6: Wireshark Palanca-OT profile"
 WS_PROFILE_DIR="$HOME/.config/wireshark/profiles/Palanca-OT"
 mkdir -p "$WS_PROFILE_DIR"
 
@@ -374,10 +287,10 @@ WSMACROS
 
 log_ok "Wireshark Palanca-OT profile installed at $WS_PROFILE_DIR"
 
-# ── STEP 8: Asset inventory CSV ───────────────────────────────────
+# ── STEP 7: Asset inventory CSV ───────────────────────────────────
 # Worksheet lives alongside this script in Module_01/, not in a
 # separate worksheets/ subdirectory.
-log_step "STEP 8: Asset inventory template"
+log_step "STEP 7: Asset inventory template"
 CSV_FILE="$LAB_ROOT/palanca_asset_inventory.csv"
 if [[ ! -f "$CSV_FILE" ]]; then
     if cp "$SCRIPT_DIR/palanca_asset_inventory.csv" "$LAB_ROOT/" 2>/dev/null; then
@@ -389,10 +302,10 @@ else
     log_ok "Asset inventory CSV already exists"
 fi
 
-# ── STEP 9: draw.io topology base XML ────────────────────────────
+# ── STEP 8: draw.io topology base XML ────────────────────────────
 # Same fix: file lives alongside this script, not in a topology/
 # subdirectory of the repo.
-log_step "STEP 9: draw.io topology base file"
+log_step "STEP 8: draw.io topology base file"
 TOPOLOGY_FILE="$LAB_ROOT/topology/palanca_topology_base.xml"
 if [[ ! -f "$TOPOLOGY_FILE" ]]; then
     if cp "$SCRIPT_DIR/palanca_topology_base.xml" "$LAB_ROOT/topology/" 2>/dev/null; then
@@ -404,14 +317,14 @@ else
     log_ok "Topology base XML already exists"
 fi
 
-# ── STEP 10: Final verification ───────────────────────────────────
-log_step "STEP 10: Environment verification"
+# ── STEP 9: Final verification ───────────────────────────────────
+log_step "STEP 9: Environment verification"
 
 # Port 502 — Modbus
 if ss -tlnp 2>/dev/null | grep -q ':502 '; then
     log_ok "Port 502 (Modbus/TCP) LISTENING"
 else
-    log_warn "Port 502 not listening — start OpenPLC before Lab 3: sudo systemctl start openplc"
+    log_warn "Port 502 not listening — check: docker compose -f $COMPOSE_FILE logs openplc"
 fi
 
 # Port 8080 — OpenPLC web
@@ -421,25 +334,22 @@ else
     log_warn "Port 8080 not listening"
 fi
 
-# Port 4840 — OPC-UA (Python fallback server, only if ScadaBR isn't installed)
-if ss -tlnp 2>/dev/null | grep -q ':4840 '; then
-    log_ok "Port 4840 (OPC-UA) LISTENING"
-elif [[ -f "$SCADABR_TOMCAT" ]]; then
-    log_ok "Port 4840 not listening — expected, ScadaBR is installed as the Lab 4 HMI/OPC-UA source"
+# ScadaBR container
+SCADABR_RUNNING=false
+if docker compose -f "$COMPOSE_FILE" ps --status running --services 2>/dev/null | grep -qx scadabr; then
+    SCADABR_RUNNING=true
+    log_ok "ScadaBR container running — http://localhost:9090/ScadaBR"
 else
-    log_warn "Port 4840 not listening — start OPC-UA server before Lab 4"
+    log_warn "ScadaBR container not running — check: docker compose -f $COMPOSE_FILE logs scadabr"
 fi
 
-# ScadaBR
-if [[ -f "$SCADABR_TOMCAT" ]]; then
-    log_ok "ScadaBR Tomcat installed at $SCADABR_INSTALL"
-    if sudo grep -q 'port="9090"' "$SCADABR_INSTALL/tomcat/conf/server.xml" 2>/dev/null; then
-        log_ok "ScadaBR Tomcat patched to port 9090"
-    else
-        log_warn "ScadaBR Tomcat still on port 8080 — will clash with OpenPLC web UI"
-    fi
+# Port 4840 — OPC-UA (Python fallback server, only relevant if ScadaBR isn't running)
+if ss -tlnp 2>/dev/null | grep -q ':4840 '; then
+    log_ok "Port 4840 (OPC-UA) LISTENING"
+elif [[ "$SCADABR_RUNNING" == true ]]; then
+    log_ok "Port 4840 not listening — expected, ScadaBR is running as the Lab 4 HMI/OPC-UA source"
 else
-    log_warn "ScadaBR not installed — see STEP 4 output above"
+    log_warn "Port 4840 not listening — start OPC-UA server before Lab 4"
 fi
 
 # Python check — import success is the pass/fail criterion; version
@@ -451,6 +361,12 @@ import pymodbus
 print('pymodbus', getattr(pymodbus, '__version__', 'unknown'))
 " 2>/dev/null)
     log_ok "Python OT libraries importable ($PYVER)"
+    if python3 -c "import pymodbus; exit(0 if pymodbus.__version__ == '$PYMODBUS_VERSION' else 1)" 2>/dev/null; then
+        log_ok "pymodbus pinned at $PYMODBUS_VERSION (the version these lab scripts' slave= calls need)"
+    else
+        log_fail "pymodbus is not pinned at $PYMODBUS_VERSION — lab scripts will fail with" \
+                  "\"unexpected keyword argument 'slave'\" on newer pymodbus. Re-run this script."
+    fi
 else
     log_fail "Python library import failed"
 fi
@@ -484,13 +400,15 @@ else
     echo -e "Baseline PCAP: $LAB_ROOT/pcaps/palanca_baseline.pcap"
 fi
 echo ""
-if [[ -f "$SCADABR_TOMCAT" ]]; then
+if [[ "$SCADABR_RUNNING" == true ]]; then
     echo -e "${CYAN}ScadaBR (Palanca SCADA HMI):${NC}"
-    echo -e "  Start:  ${CYAN}sudo /opt/ScadaBR/tomcat/bin/startup.sh${NC}   (or double-click the desktop shortcut)"
+    echo -e "  Start:  ${CYAN}docker compose -f $COMPOSE_FILE up -d scadabr${NC}   (or double-click the desktop shortcut)"
     echo -e "  Visit:  http://localhost:9090/ScadaBR   (admin / admin)"
-    echo -e "  Stop:   ${CYAN}sudo /opt/ScadaBR/tomcat/bin/shutdown.sh${NC}"
+    echo -e "  Stop:   ${CYAN}docker compose -f $COMPOSE_FILE stop scadabr${NC}"
     echo -e "  Wire it to OpenPLC (one-time, in the browser): Data Sources -> New Data Source -> Modbus IP"
-    echo -e "    Host 127.0.0.1  Port 502  Unit ID 1 — see README.md, Lab 4 for the exact points to add."
+    echo -e "    Host openplc  Port 502  Unit ID 1 — see README.md, Lab 4 for the exact points to add."
+    echo -e "    (Host is the container name \"openplc\", not 127.0.0.1 — ScadaBR and OpenPLC are"
+    echo -e "    separate containers on the same Docker network.)"
     echo ""
 fi
 echo -e "Quick lab-start commands:"

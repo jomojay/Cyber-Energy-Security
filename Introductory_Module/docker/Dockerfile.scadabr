@@ -1,0 +1,35 @@
+# ============================================================================
+# ScadaBR 1.2 — containerized (was a host install to /opt/ScadaBR via the
+# upstream install_scadabr.sh silent installer; see git history of
+# ../oceon_m0_lab_setup.sh for the original host-install steps this mirrors).
+# ============================================================================
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    default-jre-headless wget unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Same release, same silent-install flow the host scripts use. 'n' answers
+# the residual "Launch now?" prompt caused by a $1 scoping bug in the
+# installer's own finishInstall() — identical workaround to the host script.
+RUN wget -q --timeout=120 --tries=5 --retry-connrefused \
+      "https://github.com/ScadaBR/ScadaBR/releases/download/v1.2/ScadaBR_Setup_Linux.zip" \
+      -O /tmp/ScadaBR_Linux.zip \
+    && unzip -q /tmp/ScadaBR_Linux.zip -d /tmp/scadabr_extract \
+    && SRC="$(find /tmp/scadabr_extract -maxdepth 1 -mindepth 1 -type d | head -1)" \
+    && [ -n "$SRC" ] || SRC=/tmp/scadabr_extract \
+    && chmod +x "$SRC"/*.sh \
+    && cd "$SRC" \
+    && echo 'n' | bash install_scadabr.sh silent \
+    && rm -rf /tmp/ScadaBR_Linux.zip /tmp/scadabr_extract
+
+WORKDIR /opt/ScadaBR
+
+EXPOSE 8080
+
+# catalina.sh run keeps Tomcat in the foreground (unlike startup.sh, which
+# forks and returns) so 'docker compose logs scadabr' shows Tomcat's own
+# stdout instead of it going to a hidden host log file.
+CMD ["/opt/ScadaBR/tomcat/bin/catalina.sh", "run"]
