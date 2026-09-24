@@ -25,6 +25,9 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 LAB_ROOT="$HOME/palanca_labs/module1"
+# Kept in sync with setup_lab_env.sh's COMPOSE_PIN_VERSION — used only for
+# the printed apt-mark unhold reminder below, not to change any behavior.
+COMPOSE_PIN_VERSION="5.4.0"
 PASS=0; WARN=0
 
 log_ok()   { echo -e "${GREEN}[OK]${NC}    $*"; PASS=$((PASS + 1)); }
@@ -115,6 +118,10 @@ echo -e "host, here's what's still in place and the commands to remove it:"
 echo ""
 echo -e "${CYAN}Built Docker images (openplc/scadabr, ~a few hundred MB):${NC}"
 echo -e "  ${CYAN}docker compose -f $SCRIPT_DIR/docker/docker-compose.yml down --rmi all${NC}"
+echo ""
+echo -e "${CYAN}docker-compose-plugin version hold (setup pinned it to $COMPOSE_PIN_VERSION and held it so"
+echo -e "'apt upgrade' can't drift it — leave this in place unless you're done with the lab for good):${NC}"
+echo -e "  ${CYAN}sudo apt-mark unhold docker-compose-plugin${NC}"
 echo ""
 echo -e "${CYAN}Python libraries (pymodbus, opcua, pyshark, scapy):${NC}"
 echo -e "  ${CYAN}pip3 uninstall -y pymodbus opcua pyshark scapy --break-system-packages${NC}"

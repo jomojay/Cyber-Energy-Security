@@ -152,34 +152,118 @@ log_step "STEP 3: PLC + SCADA stack: OpenPLC + ScadaBR (Docker)"
 
 DOCKER_DIR="$SCRIPT_DIR/docker"
 COMPOSE_FILE="$DOCKER_DIR/docker-compose.yml"
+COMPOSE_LOG_DIR="$HOME/palanca_labs/module1/logs"
+mkdir -p "$COMPOSE_LOG_DIR"
+
+# Both instructor and trainee VMs get docker-compose-plugin from the same
+# place (Docker's official apt repo, download.docker.com) and the same
+# Docker Engine (29.7.2) — the plugin is never actually missing. The
+# breakage is a version drift: whichever docker-compose-plugin release was
+# "latest" in the repo at the moment each machine ran apt install ended up
+# installed, so the instructor's box landed on 5.4.0 (installed earlier)
+# while trainee boxes landed on 5.5.0 (installed later, after 5.5.0 shipped)
+# — same repo, different point release, and 5.5.0 is what's breaking
+# build/up on the trainee side. Pinning every machine to the exact release
+# this lab has been verified against removes that drift instead of trusting
+# apt to resolve "latest" the same way run after run.
+COMPOSE_PIN_VERSION="5.4.0"
+
+ensure_docker_compose_plugin() {
+    local installed
+    installed=$(dpkg-query -W -f='${Version}' docker-compose-plugin 2>/dev/null || echo "")
+
+    if [[ "$installed" == "$COMPOSE_PIN_VERSION"-* ]]; then
+        log_ok "docker-compose-plugin $installed already pinned to the tested version"
+    else
+        log_info "docker-compose-plugin is ${installed:-not installed} — pinning to $COMPOSE_PIN_VERSION (the version this lab is verified against)..."
+        if sudo -E apt-get install -y -qq --allow-downgrades "docker-compose-plugin=${COMPOSE_PIN_VERSION}*" 2>/dev/null; then
+            log_ok "docker-compose-plugin pinned to $(dpkg-query -W -f='${Version}' docker-compose-plugin 2>/dev/null)"
+        else
+            log_warn "Could not pin docker-compose-plugin to $COMPOSE_PIN_VERSION — it may no longer be" \
+                     "available in the configured apt repo. Continuing with $(dpkg-query -W -f='${Version}' docker-compose-plugin 2>/dev/null || echo 'no version installed'):" \
+                     "if the build/up steps below fail, this version mismatch is the likely cause."
+        fi
+    fi
+
+    # Hold the package at whatever version we just landed on so a later
+    # 'apt upgrade' (run by the trainee for unrelated reasons, or a fresh
+    # 'apt-get update' before a future cohort) can't silently pull a newer
+    # docker-compose-plugin back in and reintroduce this exact drift.
+    # Permanent until explicitly undone — see teardown.sh's printed note on
+    # 'apt-mark unhold docker-compose-plugin'.
+    if apt-mark showhold 2>/dev/null | grep -qx docker-compose-plugin; then
+        log_ok "docker-compose-plugin already held at its current version"
+    elif sudo apt-mark hold docker-compose-plugin &>/dev/null; then
+        log_ok "docker-compose-plugin held — 'apt upgrade' won't drift it off $COMPOSE_PIN_VERSION anymore"
+    else
+        log_warn "Could not apt-mark hold docker-compose-plugin — version drift could recur on a future apt upgrade"
+    fi
+
+    docker compose version &>/dev/null
+}
 
 if ! command -v docker &>/dev/null; then
     log_fail "Docker is not installed. Install Docker Engine + Compose plugin first:" \
              "https://docs.docker.com/engine/install/"
-elif ! docker compose version &>/dev/null; then
-    log_fail "'docker compose' (v2 plugin) not found. Install the compose plugin."
+elif ! ensure_docker_compose_plugin; then
+    log_fail "'docker compose' (v2 plugin) still not usable after attempting to pin it." \
+             "Install it manually: https://docs.docker.com/compose/install/linux/"
 else
+    log_info "Docker: $(docker --version)"
+    log_info "Compose: $(docker compose version --short 2>/dev/null || docker compose version)"
+
+    # Newer Compose releases can default to building through 'docker buildx
+    # bake' (COMPOSE_BAKE). That path needs the buildx plugin configured,
+    # which isn't guaranteed on every trainee VM, and was a plausible cause
+    # of the "docker compose up failed" reports even though these
+    # Dockerfiles use nothing buildx-specific. Forcing the classic builder
+    # here removes that whole class of version-dependent build failure.
+    export COMPOSE_BAKE=false
+
+    BUILD_LOG="$COMPOSE_LOG_DIR/compose_build.log"
+    UP_LOG="$COMPOSE_LOG_DIR/compose_up.log"
+    BUILD_OK=false
+
     log_info "Building OpenPLC + ScadaBR images (first run takes several minutes)..."
-    if docker compose -f "$COMPOSE_FILE" build --quiet; then
+    if docker compose -f "$COMPOSE_FILE" build >"$BUILD_LOG" 2>&1; then
         log_ok "Images built"
+        BUILD_OK=true
     else
-        log_fail "docker compose build failed — see output above"
+        log_fail "docker compose build failed — last lines of $BUILD_LOG:"
+        tail -n 20 "$BUILD_LOG" | sed 's/^/         /'
     fi
 
-    log_info "Starting OpenPLC + ScadaBR containers..."
-    if docker compose -f "$COMPOSE_FILE" up -d; then
-        log_ok "Containers started"
+    if [[ "$BUILD_OK" == true ]]; then
+        log_info "Starting OpenPLC + ScadaBR containers..."
+        if docker compose -f "$COMPOSE_FILE" up -d >"$UP_LOG" 2>&1; then
+            log_ok "Containers started"
+        else
+            log_fail "docker compose up failed — last lines of $UP_LOG:"
+            tail -n 20 "$UP_LOG" | sed 's/^/         /'
+        fi
     else
-        log_fail "docker compose up failed — see output above"
+        log_warn "Skipping 'docker compose up' — image build did not succeed"
     fi
 
-    sleep 3
-    if ss -tlnp 2>/dev/null | grep -q ':502 '; then
+    # Poll instead of a single flat sleep: a JVM/Tomcat (ScadaBR) or a
+    # first-boot OpenPLC runtime can take well past 3 seconds on slower
+    # trainee hardware, which was turning a plain "still starting" into a
+    # false "port not listening" failure report.
+    log_info "Waiting for services to come up (up to 60s)..."
+    PORT_502_UP=false; PORT_9090_UP=false
+    for _ in $(seq 1 20); do
+        ss -tlnp 2>/dev/null | grep -q ':502 ' && PORT_502_UP=true
+        ss -tlnp 2>/dev/null | grep -q ':9090 ' && PORT_9090_UP=true
+        [[ "$PORT_502_UP" == true && "$PORT_9090_UP" == true ]] && break
+        sleep 3
+    done
+
+    if [[ "$PORT_502_UP" == true ]]; then
         log_ok "OpenPLC Modbus server listening on port 502"
     else
         log_warn "Port 502 not yet listening — check: docker compose -f $COMPOSE_FILE logs openplc"
     fi
-    if ss -tlnp 2>/dev/null | grep -q ':9090 '; then
+    if [[ "$PORT_9090_UP" == true ]]; then
         log_ok "ScadaBR listening on port 9090"
     else
         log_warn "Port 9090 not yet listening — check: docker compose -f $COMPOSE_FILE logs scadabr"
