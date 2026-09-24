@@ -1,0 +1,11 @@
+FROM python:3.11-slim
+# iproute2: Module 3 Day 4's setup.sh adds an 'ip route' for cross-zone
+# traffic to reach fw-ot-01 — Control-zone devices need it so Modbus/
+# OPC-UA reply traffic can route back out to Supervisory.
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir pymodbus==3.6.9
+COPY modbus_device_sim.py /app/modbus_device_sim.py
+WORKDIR /app
+EXPOSE 502
+CMD ["python3", "modbus_device_sim.py"]

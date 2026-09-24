@@ -1,0 +1,23 @@
+==============================================================
+ Palanca FW-OT-01 ruleset verification — 2026-09-24T22:53:55Z
+==============================================================
+[PASS] R01  Supervisory(eng-ws-01) -> Control(plc-main-01) Modbus/502  -> CONNECTED (expected ALLOW)
+[PASS] R02  Supervisory(eng-ws-01) -> Control(plc-main-01) OPC-UA/4840  -> CONNECTED (expected ALLOW)
+[PASS] R03  Supervisory(eng-ws-01) -> Control(plc-main-01) ICMP ping  -> REACHABLE (expected ALLOW)
+[PASS] R04  Supervisory(eng-ws-01) -> Control(plc-main-01) other/23 (catch-all)  -> TIMEOUT (expected DENY)
+[PASS] R05  Supervisory(eng-ws-01) -> DMZ(historian-01) OPC-UA/4840  -> CONNECTED (expected ALLOW)
+[PASS] R06  DMZ(historian-01) -> Supervisory(scada-hmi-01) HTTPS/443  -> CONNECTED (expected ALLOW)
+[PASS] R07  DMZ(historian-01) -> Supervisory(scada-hmi-01) other/80 (catch-all, port genuinely open there)  -> TIMEOUT (expected DENY)
+[PASS] R08  DMZ(historian-01) -> Enterprise(enterprise-ws-01) SQL/1433  -> CONNECTED (expected ALLOW)
+[PASS] R09/R10  Enterprise(enterprise-ws-01) -> DMZ(historian-01) HTTPS/443  -> CONNECTED (expected ALLOW)
+[PASS] R11  Enterprise(enterprise-ws-01) -> Control(plc-main-01) Modbus/502 (must be blocked)  -> TIMEOUT (expected DENY)
+[PASS] R12  Enterprise(enterprise-ws-01) -> Supervisory(scada-hmi-01) HTTPS/443 (must be blocked)  -> TIMEOUT (expected DENY)
+-- R99 default-deny baseline (Management/Quarantine isolation, Control<->DMZ) --
+[PASS] R99  Supervisory(eng-ws-01) -> Management(mgmt-ws-01) 8080  -> TIMEOUT (expected DENY)
+[PASS] R99  Supervisory(eng-ws-01) -> Quarantine(quarantine-host-01) 8080  -> TIMEOUT (expected DENY)
+[PASS] R99  Quarantine(quarantine-host-01) -> Control(plc-main-01) Modbus/502  -> TIMEOUT (expected DENY)
+[PASS] R99  Control(plc-main-01) -> DMZ(historian-01) HTTP/80 (no rule permits this pair)  -> TIMEOUT (expected DENY)
+==============================================================
+ PASS: 15   FAIL: 0
+ Full results saved to: /home/devsec/Documents/Cyber-Energy-Security/Module_3/logs/firewall_test_results.txt
+==============================================================

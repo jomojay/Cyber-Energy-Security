@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+# iproute2: Module 3 Day 4's setup.sh adds an 'ip route' for cross-zone
+# traffic to reach fw-ot-01 (historian talks to both Supervisory and
+# Enterprise across zone boundaries).
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+COPY historian_sim.py /app/historian_sim.py
+WORKDIR /app
+EXPOSE 80
+CMD ["python3", "historian_sim.py"]

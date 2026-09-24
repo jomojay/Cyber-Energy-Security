@@ -1,0 +1,9 @@
+=======================================================================
+ Palanca Gas Plant — Engineering Workstation (Lab Simulation, ENG-WS-01)
+ Module 2: Network Mapping & Asset Discovery
+=======================================================================
+ Tools installed: nmap, tshark, tcpdump, ssh, python3 (pymodbus, opcua)
+ Helper script:   palanca_modbus_read.py <host> [num_registers]
+ SW-CORE-01 SSH:  ssh admin@sw-core-01   (password: palanca-lab)
+ See the Lab Run Book for full step-by-step instructions.
+=======================================================================

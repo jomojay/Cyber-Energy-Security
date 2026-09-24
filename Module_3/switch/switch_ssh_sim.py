@@ -54,14 +54,15 @@ KNOWN_HOSTS = [
     "192.168.1.30",   # prot-rel-01
     "192.168.1.31",   # prot-rel-02
     "192.168.1.40",   # vfd-pump-01
-    "192.168.1.110",  # scada-hmi-01 (control-side IP)
-    "192.168.1.111",  # scada-hmi-02 (control-side IP)
-    "192.168.1.120",  # eng-ws-01 (control-side IP)
     "192.168.1.200",  # traffic-gen
-    "192.168.2.10",   # scada-hmi-01 (supervisory-side IP)
-    "192.168.2.11",   # scada-hmi-02 (supervisory-side IP)
-    "192.168.2.20",   # eng-ws-01 (supervisory-side IP)
-    "192.168.2.30",   # historian-01
+    "192.168.2.10",   # scada-hmi-01
+    "192.168.2.11",   # scada-hmi-02
+    "192.168.2.20",   # eng-ws-01
+    # Module 3 Day 4 note: scada-hmi-01/02 and eng-ws-01 no longer have a
+    # second, control-side IP here (that dual-homing was the Day 5 flat-
+    # network finding, removed for the Day 4 firewall exercise — see
+    # ../docker-compose.yml), and historian-01 is single-homed on ot_dmz
+    # only now, so it's no longer reachable from sw-core-01 at all.
 ]
 
 def arp_populator():

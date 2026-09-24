@@ -1,0 +1,14 @@
+Rule ID,Action,Src Zone,Dst Zone,Protocol,Port,Direction,Purpose
+R01,ALLOW,VLAN 20 (Supervisory),VLAN 10 (Control),Modbus/TCP,502,Bidirectional,HMI <-> PLC/RTU polling and control
+R02,ALLOW,VLAN 20 (Supervisory),VLAN 10 (Control),OPC-UA,4840,Supervisory->Control (read),Supervisory reads live OPC-UA data
+R03,ALLOW,VLAN 20 (Supervisory),VLAN 10 (Control),ICMP,-,Supervisory->Control (ping),Reachability monitoring
+R04,DENY,VLAN 20 (Supervisory),VLAN 10 (Control),ANY,ANY,-,Catch-all deny for this pair
+R05,ALLOW,VLAN 20 (Supervisory),VLAN 30 (DMZ),OPC-UA,4840,Supervisory->DMZ (data diode),Historian data ingest (one-way)
+R06,ALLOW,VLAN 30 (DMZ),VLAN 20 (Supervisory),HTTPS,443,DMZ->Supervisory (monitoring),Dashboard/monitoring access
+R07,DENY,VLAN 30 (DMZ),VLAN 20 (Supervisory),ANY,ANY,-,Catch-all deny for this pair
+R08,ALLOW,VLAN 30 (DMZ),Enterprise,SQL,1433,DMZ->Enterprise (read-only),Historian data to enterprise reporting
+R09,ALLOW,Enterprise,VLAN 30 (DMZ),HTTPS,443,Enterprise->DMZ (dashboards),Enterprise views DMZ dashboards
+R10,ALLOW,Enterprise,VLAN 30 (DMZ),VPN,443,Remote engineering (MFA required),Authorised remote engineering access
+R11,DENY,Enterprise,VLAN 10 (Control),ANY,ANY,BLOCK,Enterprise must never reach Control directly
+R12,DENY,Enterprise,VLAN 20 (Supervisory),ANY,ANY,BLOCK,Enterprise must never reach Supervisory directly
+R99,DENY,ANY,ANY,ANY,ANY,Default deny,Default-deny baseline -- catches everything not explicitly permitted above
