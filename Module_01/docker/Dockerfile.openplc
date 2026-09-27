@@ -30,6 +30,20 @@ RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/systemctl \
 # scripts use for OpenPLC's bundled OpenDNP3 failing to configure under
 # CMake 4.x.
 #
+# Pinned to a specific commit rather than floating on the default branch.
+# thiagoralves/OpenPLC_v3 was archived (read-only, no further commits) in
+# April 2026 and never used git tags, so there is no "latest release" to
+# track — HEAD is whatever it happened to be the day this Dockerfile was
+# last built. Verified while building the Module 1 lab runbook that HEAD
+# as of writing has a real bug: Modbus reads never reflect live-updated
+# %MW/memory values, even for a trivial one-line counter program — the ST
+# compiles correctly and the runtime's own scan-time RPC confirms it's
+# actually scanning, but nothing written during a scan ever reaches a
+# Modbus client. That regression traces to PR #263 ("Modbus Streaming
+# Read", merged 2025-06-04, commit a931181), which rewrote how the Modbus
+# server reads registers. This pins to 264863a, the commit immediately
+# before that merge.
+#
 # The clone itself is wrapped in a retry loop and forced onto HTTP/1.1:
 # GitHub's HTTP/2 transfer of this repo intermittently resets mid-clone on
 # some networks ("HTTP/2 stream ... was not closed cleanly: CANCEL" /
@@ -39,7 +53,12 @@ RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/systemctl \
 RUN git config --global http.version HTTP/1.1 \
     && for i in 1 2 3 4 5; do \
          rm -rf /opt/OpenPLC_v3; \
-         git clone --depth=1 https://github.com/thiagoralves/OpenPLC_v3.git /opt/OpenPLC_v3 && break; \
+         mkdir -p /opt/OpenPLC_v3 && cd /opt/OpenPLC_v3 \
+         && git init -q \
+         && git remote add origin https://github.com/thiagoralves/OpenPLC_v3.git \
+         && git fetch --depth=1 origin 264863a195d3098e2d621bec61ca90addba21f01 \
+         && git checkout -q FETCH_HEAD && break; \
+         cd / && rm -rf /opt/OpenPLC_v3; \
          echo "clone attempt $i failed, retrying..."; sleep 5; \
        done \
     && cd /opt/OpenPLC_v3 \
