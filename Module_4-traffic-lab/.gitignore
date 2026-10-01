@@ -4,3 +4,4 @@ results/
 __pycache__/
 .otlab_cache/
 *.pyc
+instructor-only/
