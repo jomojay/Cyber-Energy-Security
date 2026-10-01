@@ -1,0 +1,38 @@
+{
+  "_readme": "Site profile: what 'normal' looks like at this site. Every otlab command reads it to put names on IP addresses and to know who is ALLOWED to do what. To use otlab at your own site, copy this file (or run 'otlab profile learn your_capture.pcap') and edit it.",
+  "site": "Palanca Offshore Platform (5.5kV/11kV SCADA)",
+  "timezone_note": "All synthetic lab captures use UTC timestamps.",
+  "assets": [
+    {"name": "SW-CORE-01",  "ip": "192.168.1.1",  "role": "Core switch / gateway",   "zone": "Control (L1)"},
+    {"name": "PLC-MAIN-01", "ip": "192.168.1.10", "role": "PLC (main)",               "zone": "Control (L1)"},
+    {"name": "PLC-AUX-01",  "ip": "192.168.1.11", "role": "PLC (auxiliary)",          "zone": "Control (L1)"},
+    {"name": "GEN1-RTU",    "ip": "192.168.1.20", "role": "RTU - Generator 1",        "zone": "Control (L1)"},
+    {"name": "GEN2-RTU",    "ip": "192.168.1.21", "role": "RTU - Generator 2",        "zone": "Control (L1)"},
+    {"name": "PROT-REL-01", "ip": "192.168.1.30", "role": "Protection relay",         "zone": "Control (L1)"},
+    {"name": "PROT-REL-02", "ip": "192.168.1.31", "role": "Protection relay",         "zone": "Control (L1)"},
+    {"name": "VFD-PUMP-01", "ip": "192.168.1.40", "role": "Variable frequency drive", "zone": "Control (L1)"},
+    {"name": "HMI-01",      "ip": "192.168.2.10", "role": "Operator HMI",             "zone": "Supervisory (L2)"},
+    {"name": "SCADA-SVR",   "ip": "192.168.2.11", "role": "SCADA server (OPC UA)",    "zone": "Supervisory (L2)"},
+    {"name": "ENG-WS",      "ip": "192.168.2.20", "role": "Engineering workstation",  "zone": "Supervisory (L2)"},
+    {"name": "NMS",         "ip": "192.168.2.50", "role": "Network management (SNMP)","zone": "Supervisory (L2)"},
+    {"name": "SW-DMZ-01",   "ip": "192.168.3.1",  "role": "DMZ switch",               "zone": "DMZ (L3)"},
+    {"name": "HISTORIAN",   "ip": "192.168.3.10", "role": "Process historian",        "zone": "DMZ (L3)"}
+  ],
+  "gateways": ["192.168.1.1"],
+  "plcs": ["192.168.1.10", "192.168.1.11"],
+  "modbus": {
+    "approved_masters": ["192.168.1.10", "192.168.2.10"],
+    "approved_writers": ["192.168.2.10", "192.168.2.20"],
+    "highest_normal_register": 99
+  },
+  "approved_programmers": ["192.168.2.20"],
+  "programming_ports": [102, 44818, 1962, 20547],
+  "thresholds": {
+    "scan_distinct_ports": 5,
+    "scan_window_seconds": 60,
+    "enum_distinct_addresses": 8,
+    "upload_bytes": 10000,
+    "exfil_bytes": 50000
+  },
+  "window_minutes": 5
+}

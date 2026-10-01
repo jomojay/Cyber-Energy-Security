@@ -1,0 +1,6 @@
+captures/
+results/
+.venv/
+__pycache__/
+.otlab_cache/
+*.pyc

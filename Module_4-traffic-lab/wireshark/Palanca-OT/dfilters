@@ -1,0 +1,15 @@
+"OT: Modbus only" modbus
+"OT: Modbus/TCP port 502" tcp.port == 502
+"OT: OPC UA only" opcua
+"OT: OPC UA port 4840" tcp.port == 4840
+"OT: Modbus reads (FC 01-04)" modbus.func_code in {1,2,3,4}
+"OT: Modbus writes (FC 05/06/15/16)" modbus.func_code in {5,6,15,16}
+"OT: Modbus exceptions" modbus.exception_code
+"OT: Traffic to/from PLC-MAIN-01" ip.addr == 192.168.1.10
+"OT: HMI-01 polling" ip.src == 192.168.2.10 && modbus
+"Attack: SYN scan" tcp.flags.syn == 1 && tcp.flags.ack == 0
+"Attack: register sweep" modbus.func_code in {1,2,3,4} && modbus.reference_num > 99
+"Attack: unapproved writer" modbus.func_code in {5,6,15,16} && tcp.dstport == 502 && !(ip.src in {192.168.2.10,192.168.2.20})
+"Attack: big frame to PLC" ip.dst in {192.168.1.10,192.168.1.11} && frame.len > 1000
+"Attack: ARP spoof" arp.duplicate-address-detected || arp.duplicate-address-frame
+"Attack: PLC programming port" tcp.port == 102

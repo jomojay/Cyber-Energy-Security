@@ -1,0 +1,35 @@
+{
+  "_readme": "Profile for the LIVE Module 2 / Module 3 Docker lab (Days 1-2). Device map from Module_2_Lab_Setup/README.md. Used automatically for captures in captures/live/.",
+  "site": "Palanca live Docker lab (Module 2 topology)",
+  "assets": [
+    {"name": "SW-CORE-01",    "ip": "192.168.1.1",   "role": "Core switch",                    "zone": "Control (L1)"},
+    {"name": "PLC-MAIN-01",   "ip": "192.168.1.10",  "role": "PLC (Siemens S7-1200 sim)",      "zone": "Control (L1)"},
+    {"name": "PLC-AUX-01",    "ip": "192.168.1.11",  "role": "PLC (Siemens S7-1200 sim)",      "zone": "Control (L1)"},
+    {"name": "GEN1-RTU",      "ip": "192.168.1.20",  "role": "RTU (GE sim)",                   "zone": "Control (L1)"},
+    {"name": "GEN2-RTU",      "ip": "192.168.1.21",  "role": "RTU (GE sim)",                   "zone": "Control (L1)"},
+    {"name": "PROT-REL-01",   "ip": "192.168.1.30",  "role": "Protection relay (ABB sim)",     "zone": "Control (L1)"},
+    {"name": "PROT-REL-02",   "ip": "192.168.1.31",  "role": "Protection relay (ABB sim)",     "zone": "Control (L1)"},
+    {"name": "VFD-PUMP-01",   "ip": "192.168.1.40",  "role": "VFD (ABB sim)",                  "zone": "Control (L1)"},
+    {"name": "HMI-01 (ctl)",  "ip": "192.168.1.110", "role": "SCADA-HMI-01 control-side NIC",  "zone": "Control (L1)"},
+    {"name": "HMI-02 (ctl)",  "ip": "192.168.1.111", "role": "SCADA-HMI-02 control-side NIC",  "zone": "Control (L1)"},
+    {"name": "ENG-WS (ctl)",  "ip": "192.168.1.120", "role": "ENG-WS-01 control-side NIC",     "zone": "Control (L1)"},
+    {"name": "TRAFFIC-GEN",   "ip": "192.168.1.200", "role": "Lab polling master (sim)",       "zone": "Control (L1)"},
+    {"name": "SW-CORE-01",    "ip": "192.168.2.1",   "role": "Core switch (supervisory side)", "zone": "Supervisory (L2)"},
+    {"name": "SCADA-HMI-01",  "ip": "192.168.2.10",  "role": "HMI (OPC UA 4840, HTTP 80)",     "zone": "Supervisory (L2)"},
+    {"name": "SCADA-HMI-02",  "ip": "192.168.2.11",  "role": "HMI (OPC UA 4840, HTTP 80)",     "zone": "Supervisory (L2)"},
+    {"name": "ENG-WS-01",     "ip": "192.168.2.20",  "role": "Engineering workstation",        "zone": "Supervisory (L2)"},
+    {"name": "HISTORIAN-01",  "ip": "192.168.2.30",  "role": "Historian (supervisory side)",   "zone": "Supervisory (L2)"},
+    {"name": "HISTORIAN-01",  "ip": "192.168.3.10",  "role": "Historian",                      "zone": "DMZ (L3)"}
+  ],
+  "gateways": ["192.168.1.254", "192.168.2.254", "192.168.3.254"],
+  "plcs": ["192.168.1.10", "192.168.1.11"],
+  "modbus": {
+    "approved_masters": ["192.168.1.200", "192.168.2.20", "192.168.1.120"],
+    "approved_writers": ["192.168.2.20", "192.168.1.120"],
+    "highest_normal_register": 49
+  },
+  "approved_programmers": ["192.168.2.20", "192.168.1.120"],
+  "programming_ports": [102, 44818, 1962, 20547],
+  "thresholds": {"scan_distinct_ports": 5, "scan_window_seconds": 60, "enum_distinct_addresses": 8, "upload_bytes": 10000, "exfil_bytes": 50000},
+  "window_minutes": 5
+}

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# otlab launcher - run ./otlab from the Module 4 lab folder (no install needed).
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY=python3
+[ -x "$HERE/.venv/bin/python" ] && PY="$HERE/.venv/bin/python"
+PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -m otkit "$@"

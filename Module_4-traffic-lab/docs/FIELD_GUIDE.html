@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OT Traffic Field Guide</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#17202b;--muted:#5a6573;--line:#d9dee5;--accent:#0b5cad;--accent2:#0e7c66;
+--warn:#b45309;--crit:#b3261e;--code:#eef1f5;--mb:#e8f1fb;--pdu:#e9f7f1}
+@media (prefers-color-scheme:dark){:root{--bg:#11151b;--card:#1a2029;--ink:#e5e9ef;--muted:#9aa5b3;--line:#2b3441;
+--accent:#6cb0ff;--accent2:#4fd1b0;--warn:#f59e0b;--crit:#f87171;--code:#232b36;--mb:#1d2a3a;--pdu:#16302a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1200px;margin:0 auto;padding:24px 16px 48px}
+header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:8px;border-bottom:3px solid var(--accent);padding-bottom:10px;margin-bottom:16px}
+h1{margin:0;font-size:1.55rem}header p{margin:0;color:var(--muted)}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 18px}
+nav a{font-size:.8rem;text-decoration:none;color:var(--accent);border:1px solid var(--line);background:var(--card);padding:3px 9px;border-radius:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;break-inside:avoid}
+section.wide{grid-column:1/-1}
+h2{font-size:1.02rem;margin:0 0 8px;color:var(--accent)}
+h3{font-size:.9rem;margin:12px 0 4px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.82rem}
+th,td{text-align:left;padding:4px 7px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--code)}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font:12.5px ui-monospace,Menlo,Consolas,monospace;word-break:break-word}
+.tag{font-size:.7rem;font-weight:700;padding:1px 6px;border-radius:9px;color:#fff;white-space:nowrap}
+.r{background:var(--accent2)}.w{background:var(--crit)}.d{background:var(--warn)}
+.frame{display:flex;flex-wrap:wrap;margin:6px 0 4px;font:12px ui-monospace,Menlo,Consolas,monospace}
+.frame div{border:1px solid var(--line);padding:6px 6px;text-align:center;min-width:64px;flex:1}
+.frame .m{background:var(--mb)}.frame .p{background:var(--pdu)}
+.frame small{display:block;color:var(--muted);font-size:10.5px}
+.note{font-size:.8rem;color:var(--muted)}
+.safety{border-left:5px solid var(--crit)}
+.formula{font:15px ui-monospace,Menlo,Consolas,monospace;background:var(--code);padding:8px 10px;border-radius:6px;margin:6px 0}
+ul{margin:4px 0;padding-left:18px}li{margin:2px 0}
+@media print{body{background:#fff;font-size:11px}nav{display:none}section{border-color:#bbb}main{padding:0}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>OT Traffic Field Guide</h1>
+  <p>Module 4 · Palanca Offshore Platform · Modbus/TCP · OPC UA · Wireshark · anomaly &amp; attack detection</p></div>
+  <p>Keep it open during the lab; print it for the job.</p>
+</header>
+<nav>
+  <a href="#assets">Assets</a><a href="#normal">Normal traffic</a><a href="#frame">Modbus frame</a>
+  <a href="#fc">Function codes</a><a href="#filters">Filters</a><a href="#attacks">Attack signatures</a>
+  <a href="#detect">Detection maths</a><a href="#wireshark">Wireshark tips</a><a href="#otlab">otlab</a><a href="#safety">Safety</a>
+</nav>
+
+<div class="grid">
+
+<section id="assets">
+<h2>Palanca assets (synthetic captures)</h2>
+<div class="scroll"><table>
+<tr><th>Name</th><th>IP</th><th>Role</th></tr>
+<tr><td colspan="3"><b>Level 3 · DMZ</b></td></tr>
+<tr><td>HISTORIAN</td><td>192.168.3.10</td><td>OPC UA client of SCADA-SVR</td></tr>
+<tr><td>SW-DMZ-01</td><td>192.168.3.1</td><td>switch (SNMP)</td></tr>
+<tr><td colspan="3"><b>Level 2 · Supervisory</b></td></tr>
+<tr><td>HMI-01</td><td>192.168.2.10</td><td>operator HMI · <b>approved writer</b></td></tr>
+<tr><td>SCADA-SVR</td><td>192.168.2.11</td><td>OPC UA server (4840)</td></tr>
+<tr><td>ENG-WS</td><td>192.168.2.20</td><td>engineering WS · <b>approved writer / programmer</b></td></tr>
+<tr><td>NMS</td><td>192.168.2.50</td><td>SNMP poller</td></tr>
+<tr><td colspan="3"><b>Level 1 · Control</b></td></tr>
+<tr><td>SW-CORE-01</td><td>192.168.1.1</td><td>core switch · <b>gateway</b></td></tr>
+<tr><td>PLC-MAIN-01</td><td>192.168.1.10</td><td>main PLC · polls all field devices</td></tr>
+<tr><td>PLC-AUX-01</td><td>192.168.1.11</td><td>auxiliary PLC</td></tr>
+<tr><td>GEN1/GEN2-RTU</td><td>192.168.1.20 / .21</td><td>generator RTUs</td></tr>
+<tr><td>PROT-REL-01/02</td><td>192.168.1.30 / .31</td><td>protection relays</td></tr>
+<tr><td>VFD-PUMP-01</td><td>192.168.1.40</td><td>pump drive</td></tr>
+</table></div>
+<p class="note">Live Module 2 lab differs slightly (traffic-gen .1.200, dual-homed HMIs): see <code>profiles/palanca_live_lab.json</code>.</p>
+</section>
+
+<section id="normal">
+<h2>What normal looks like (Table 4.1 + text)</h2>
+<div class="scroll"><table>
+<tr><th>From → To</th><th>Protocol</th><th>Every</th><th>Content</th></tr>
+<tr><td>PLC-MAIN-01 → each RTU/relay/VFD</td><td>Modbus/TCP 502</td><td>2 s</td><td>FC03, 10 registers (~80 B)</td></tr>
+<tr><td>HMI-01 → PLC-MAIN-01</td><td>Modbus/TCP 502</td><td>1 s</td><td>FC03 reads (~120 B); FC06 setpoint writes, more on day shift</td></tr>
+<tr><td>SCADA-SVR → HISTORIAN</td><td>OPC UA 4840</td><td>5 s</td><td>~400 B PublishResponses, 3 subscriptions</td></tr>
+<tr><td>HMI-01 → SCADA-SVR</td><td>HTTPS 443</td><td>~12 s</td><td>SCADA web interface (TLS)</td></tr>
+<tr><td>ENG-WS → PLC-MAIN-01</td><td>HTTP 80</td><td>on demand</td><td>~1200 B diagnostics page, day shift</td></tr>
+<tr><td>NMS → switches</td><td>SNMPv2c 161/udp</td><td>60 s</td><td>GET interface counters, CPU, memory</td></tr>
+<tr><td>everyone</td><td>ARP</td><td>20–40 s</td><td>cache refresh</td></tr>
+<tr><td>hosts / switches</td><td>NTP, syslog, NBNS, LLMNR, SSDP</td><td>background</td><td>time sync, logs, Windows name lookup &amp; discovery</td></tr>
+</table></div>
+<p class="note">Protocol mix, % of <b>bytes</b> (Wireshark › Statistics › Protocol Hierarchy › Percent Bytes): Modbus 50.4 · OPC UA 21.7 · HTTP/HTTPS 9.6 · ARP 6.7 · SNMP 1.8 · other ~10.</p>
+<h3>Rules of thumb</h3>
+<ul>
+<li>OT traffic is <b>boringly regular</b>: the same devices, ports, function codes and intervals all day.</li>
+<li>Normal function codes: <b>FC03 and FC06 only</b>. Normal register range: <b>0–99</b>. Normal writers: <b>HMI-01, ENG-WS</b> only.</li>
+<li>Anything new (a host, a port, a function code, a big frame) deserves a look.</li>
+<li>"Normal" is not always "good": SNMPv2c (clear-text community), LLMNR/NBNS (name poisoning) and SSDP are findings in their own right.</li>
+</ul>
+</section>
+
+<section id="frame" class="wide">
+<h2>Modbus/TCP frame (Section 4.2.2)</h2>
+<div class="frame">
+  <div class="m">00 01<small>Transaction ID<br>pairs request ↔ response</small></div>
+  <div class="m">00 00<small>Protocol ID<br>always 0</small></div>
+  <div class="m">00 06<small>Length<br>bytes that follow</small></div>
+  <div class="m">01<small>Unit ID<br>device behind gateway</small></div>
+  <div class="p">03<small>Function Code<br>the "verb"</small></div>
+  <div class="p">00 00<small>Start address<br>register 0</small></div>
+  <div class="p">00 0a<small>Quantity<br>10 registers</small></div>
+</div>
+<p class="note">Blue = MBAP header (7 bytes) · green = PDU. Requests go <b>to</b> TCP port 502; responses come <b>from</b> 502.
+Exception reply: function code + 0x80 (e.g. <code>0x83</code>) followed by an exception code.
+Try it: <code>./otlab explain --hex "00 01 00 00 00 06 01 03 00 00 00 0a"</code></p>
+</section>
+
+<section id="fc">
+<h2>Modbus function codes</h2>
+<div class="scroll"><table>
+<tr><th>FC</th><th>Name</th><th></th></tr>
+<tr><td>01</td><td>Read Coils</td><td><span class="tag r">read</span></td></tr>
+<tr><td>02</td><td>Read Discrete Inputs</td><td><span class="tag r">read</span></td></tr>
+<tr><td>03</td><td>Read Holding Registers</td><td><span class="tag r">read</span></td></tr>
+<tr><td>04</td><td>Read Input Registers</td><td><span class="tag r">read</span></td></tr>
+<tr><td>05</td><td>Write Single Coil</td><td><span class="tag w">WRITE</span></td></tr>
+<tr><td>06</td><td>Write Single Register</td><td><span class="tag w">WRITE</span></td></tr>
+<tr><td>08</td><td>Diagnostics (can force listen-only mode)</td><td><span class="tag d">diag</span></td></tr>
+<tr><td>15</td><td>Write Multiple Coils</td><td><span class="tag w">WRITE</span></td></tr>
+<tr><td>16</td><td>Write Multiple Registers</td><td><span class="tag w">WRITE</span></td></tr>
+<tr><td>17</td><td>Report Server ID</td><td><span class="tag d">recon</span></td></tr>
+<tr><td>23</td><td>Read/Write Multiple Registers</td><td><span class="tag w">WRITE</span></td></tr>
+<tr><td>43</td><td>Read Device Identification</td><td><span class="tag d">recon</span></td></tr>
+<tr><td>90</td><td>Schneider UMAS (programming)</td><td><span class="tag w">PROGRAM</span></td></tr>
+</table></div>
+<h3>Exception codes</h3>
+<p class="note">01 Illegal Function · 02 <b>Illegal Data Address</b> (typical during register enumeration) · 03 Illegal Data Value · 04 Server Device Failure · 06 Busy</p>
+</section>
+
+<section id="filters">
+<h2>Wireshark display filters</h2>
+<div class="scroll"><table>
+<tr><th>Show me …</th><th>Filter</th></tr>
+<tr><td>Modbus / OPC UA</td><td><code>modbus</code> · <code>opcua</code></td></tr>
+<tr><td>by port (incl. handshakes)</td><td><code>tcp.port==502</code> · <code>tcp.port==4840</code></td></tr>
+<tr><td>Modbus requests only</td><td><code>modbus &amp;&amp; tcp.dstport==502</code></td></tr>
+<tr><td>writes</td><td><code>modbus.func_code in {5,6,15,16}</code></td></tr>
+<tr><td>a specific register</td><td><code>modbus.reference_num == 9</code></td></tr>
+<tr><td>exceptions</td><td><code>modbus.exception_code</code></td></tr>
+<tr><td>one device</td><td><code>ip.addr == 192.168.1.10</code></td></tr>
+<tr><td>between two devices</td><td><code>ip.addr==192.168.2.10 &amp;&amp; ip.addr==192.168.1.10</code></td></tr>
+<tr><td>a time slice (seconds)</td><td><code>frame.time_relative &gt;= 21600 &amp;&amp; frame.time_relative &lt; 21900</code></td></tr>
+<tr><td>new connections</td><td><code>tcp.flags.syn==1 &amp;&amp; tcp.flags.ack==0</code></td></tr>
+<tr><td>OPC UA session set-up</td><td><code>opcua.transport.type in {"HEL","ACK","OPN"}</code></td></tr>
+<tr><td>everything unusual</td><td><code>!(modbus || opcua || snmp || arp || http)</code></td></tr>
+</table></div>
+<p class="note">Sets use commas: <code>{5,6,15,16}</code>. A green filter bar = valid; red = typo.</p>
+</section>
+
+<section id="attacks" class="wide">
+<h2>Attack signatures (Table 4.3 · Section 4.5.1)</h2>
+<div class="scroll"><table>
+<tr><th>Attack</th><th>What it looks like</th><th>Wireshark filter</th><th>First response</th></tr>
+<tr><td><b>Reconnaissance</b> (port scan)</td><td>one host sends SYN to many ports in seconds; SYN/ACK = open, RST = closed</td>
+<td><code>tcp.flags.syn==1 &amp;&amp; tcp.flags.ack==0</code> → Statistics › Conversations, sort by port count</td><td>identify &amp; isolate scanner; check what else it touched</td></tr>
+<tr><td><b>Register enumeration</b></td><td>reads sweeping 0…999 in steps from a non-master; replies are <code>0x83</code> Illegal Data Address</td>
+<td><code>modbus.func_code in {1,2,3,4} &amp;&amp; modbus.reference_num &gt; 99</code></td><td>block source; watch for writes that follow</td></tr>
+<tr><td><b>Unauthorised write</b></td><td>FC05/06/15/16 from a host that is not HMI-01 / ENG-WS</td>
+<td><code>modbus.func_code in {5,6,15,16} &amp;&amp; tcp.dstport==502 &amp;&amp; !(ip.src in {192.168.2.10,192.168.2.20})</code></td><td><b>tell the control room now</b>; verify the process value; isolate source</td></tr>
+<tr><td><b>PLC program upload</b></td><td>&gt;10 KB pushed to a PLC in full-size frames, often TCP/102 (S7) outside a maintenance window</td>
+<td><code>ip.dst in {192.168.1.10,192.168.1.11} &amp;&amp; frame.len &gt; 1000</code></td><td>confirm with engineering; compare PLC program with backup</td></tr>
+<tr><td><b>ARP spoofing / MITM</b></td><td>unsolicited ARP replies: the gateway IP suddenly has a second MAC</td>
+<td><code>arp.duplicate-address-detected</code></td><td>find the switch port of the rogue MAC; shut it</td></tr>
+<tr><td>Data exfiltration</td><td>large outbound transfer from the control zone to an unknown host</td>
+<td><code>ip.src==192.168.1.0/24 &amp;&amp; !(ip.dst==192.168.0.0/16)</code></td><td>identify destination &amp; data</td></tr>
+</table></div>
+</section>
+
+<section id="detect">
+<h2>Detection maths (Sections 4.3–4.4)</h2>
+<h3>Baseline (Day 3)</h3>
+<p>Cut traffic into 5-minute windows → count features per window → <b>mean</b>, <b>std</b>, percentiles.</p>
+<h3>Z-score (Day 4)</h3>
+<div class="formula">z = (value − mean) / std &nbsp;&nbsp; flag if |z| &gt; 3</div>
+<ul><li>std ≈ 0 (feature never changes)? Use a minimum std (otlab uses 1) or every tiny change becomes "infinite".</li>
+<li>Higher threshold → fewer false alarms but more misses.</li>
+<li>One global baseline mixes day and night; per-shift baselines are sharper.</li></ul>
+<h3>Isolation Forest (Day 5)</h3>
+<ul><li>Train on <b>normal</b> windows only; odd windows are isolated in fewer random splits.</li>
+<li><code>contamination</code> = share of training data treated as outliers = the alarm threshold.</li>
+<li>It can't rate something as more unusual than the most unusual training window, so lowering contamination can hide real attacks.</li></ul>
+<h3>Scoring</h3>
+<p class="note">TPR = anomalies detected ÷ anomalies planted · FPR = normal windows flagged ÷ normal windows</p>
+</section>
+
+<section id="wireshark">
+<h2>Wireshark moves worth knowing</h2>
+<ul>
+<li><b>Profile</b> (bottom-right) → <i>Palanca-OT</i>: OT colours, filter buttons, FC/Register columns.</li>
+<li><b>Ctrl+G</b> go to packet number · <b>Ctrl+→</b> next packet in conversation.</li>
+<li>Right-click a field → <b>Apply as Filter</b> / <b>Apply as Column</b>.</li>
+<li><b>Statistics › Conversations</b>: who talks to whom, how much.</li>
+<li><b>Statistics › Protocol Hierarchy</b>: protocol mix.</li>
+<li><b>Statistics › I/O Graphs</b>: rate over time (spikes!).</li>
+<li><b>Analyze › Expert Information</b>: warnings such as duplicate IP.</li>
+<li><b>File › Export Specified Packets</b>: save just the evidence.</li>
+<li>View › Time Display Format › <i>Seconds Since Beginning of Capture</i> = the times otlab reports.</li>
+</ul>
+</section>
+
+<section id="otlab">
+<h2>otlab quick reference</h2>
+<div class="scroll"><table>
+<tr><td><code>./otlab doctor</code></td><td>check the machine</td></tr>
+<tr><td><code>./otlab live status | activity | capture</code></td><td>Days 1–2, live lab</td></tr>
+<tr><td><code>./otlab summary &lt;cap&gt;</code></td><td>protocols, hosts, timeline</td></tr>
+<tr><td><code>./otlab map &lt;cap&gt;</code></td><td>who polls whom, how often</td></tr>
+<tr><td><code>./otlab explain &lt;cap&gt; --first write</code></td><td>byte-by-byte Modbus</td></tr>
+<tr><td><code>./otlab baseline</code></td><td>Day 3</td></tr>
+<tr><td><code>./otlab detect zscore anomalies</code></td><td>Day 4</td></tr>
+<tr><td><code>./otlab detect ml anomalies --sweep</code></td><td>Day 5</td></tr>
+<tr><td><code>./otlab hunt attack</code></td><td>Day 6</td></tr>
+<tr><td><code>./otlab profile learn &lt;cap&gt;</code></td><td>draft a profile for your site</td></tr>
+</table></div>
+<p class="note">Shortcuts <code>baseline</code>, <code>anomalies</code>, <code>attack</code> = the files in <code>captures/</code>. Reports land in <code>results/</code>.</p>
+</section>
+
+<section id="safety" class="safety wide">
+<h2>On the job: capture safely</h2>
+<ul>
+<li><b>Passive only.</b> Use a SPAN/mirror port or a hardware TAP. Listening can't trip a breaker; sending can.</li>
+<li><b>Never</b> scan, ping-sweep, or send Modbus/OPC UA requests to live control equipment without a written, approved work permit. Some PLCs and relays crash on a simple port scan.</li>
+<li>Get <b>permission</b> from the asset owner and tell the control room before connecting anything.</li>
+<li>Captures contain plant data and sometimes credentials: store them encrypted and delete them when you're done.</li>
+<li>A detector's alarm is a <b>question, not a verdict</b>. Confirm in the packets before you escalate, and escalate process-safety concerns immediately.</li>
+</ul>
+</section>
+
+</div>
+</main>
+</body>
+</html>

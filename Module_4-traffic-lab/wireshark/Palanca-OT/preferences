@@ -1,0 +1,12 @@
+# Palanca-OT profile preferences (Module 4). Only settings that differ from Wireshark's defaults.
+gui.column.format:
+	"No.", "%m",
+	"Time", "%t",
+	"Source", "%s",
+	"Destination", "%d",
+	"Protocol", "%p",
+	"Length", "%L",
+	"Unit", "%Cus:mbtcp.unit_id:0:R",
+	"FC", "%Cus:modbus.func_code:0:R",
+	"Register", "%Cus:modbus.reference_num:0:R",
+	"Info", "%i"
