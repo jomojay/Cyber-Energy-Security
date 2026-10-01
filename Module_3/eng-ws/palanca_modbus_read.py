@@ -16,7 +16,7 @@ def main():
     if not client.connect():
         print(f"Could not connect to {host}:502")
         sys.exit(1)
-    result = client.read_holding_registers(0, count=count)
+    result = client.read_holding_registers(0, count=count, slave=1)
     if result.isError():
         print(f"Modbus error: {result}")
     else:

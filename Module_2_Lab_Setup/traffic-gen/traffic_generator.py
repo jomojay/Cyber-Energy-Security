@@ -38,7 +38,9 @@ def poll_forever():
             try:
                 if not client.connected:
                     client.connect()
-                client.read_holding_registers(0, count=10)
+                # Unit ID 1: pymodbus defaults to 0, the Modbus broadcast address, which
+                # no real master polls with (Wireshark would show "Unit: 0" on every frame).
+                client.read_holding_registers(0, count=10, slave=1)
             except Exception as e:
                 log.warning("%s poll failed: %s", name, e)
         time.sleep(0.5)

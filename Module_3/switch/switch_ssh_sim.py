@@ -43,9 +43,12 @@ def send_text(chan, text):
 # traffic between other pairs on the bridge. Since nothing else in
 # this stack makes sw-core-01 talk to the OT devices, its ARP cache
 # would otherwise sit empty and "show mac-address-table"/"show arp"
-# would return nothing. This background loop manufactures that
-# traffic (any TCP attempt forces ARP resolution first, whether or
-# not the port is actually open) so the tables have real entries.
+# would return nothing. The background loop below fills the tables by
+# sending plain ARP requests (who-has) and recording the replies — the
+# same ARP refresh a real switch's management interface does. (It used
+# to TCP-connect to ports 502/80/4840/22 on every host instead, which put
+# a port scan from the core switch — SYNs plus a RST for every closed
+# port, every 10 s — into every capture. ARP is all it needs.)
 KNOWN_HOSTS = [
     "192.168.1.10",   # plc-main-01
     "192.168.1.11",   # plc-aux-01
@@ -65,18 +68,87 @@ KNOWN_HOSTS = [
     # only now, so it's no longer reachable from sw-core-01 at all.
 ]
 
-def arp_populator():
+ARP_REFRESH_SECONDS = 60   # per-host ARP refresh, like a switch's ARP timer
+LEARNED = {}               # ip -> (mac, last_seen), from ARP replies
+_LEARNED_LOCK = threading.Lock()
+
+
+def _local_interfaces():
+    """[(ifname, ip, mac, network, mask)] for every IPv4 interface except loopback."""
+    out = []
+    for line in subprocess.check_output(["ip", "-o", "-4", "addr"], text=True).splitlines():
+        parts = line.split()
+        ifname, cidr = parts[1], parts[3]
+        if ifname == "lo":
+            continue
+        ip, plen = cidr.split("/")
+        with open(f"/sys/class/net/{ifname}/address") as f:
+            mac = f.read().strip()
+        mask = (0xFFFFFFFF << (32 - int(plen))) & 0xFFFFFFFF
+        out.append((ifname, ip, mac, int.from_bytes(socket.inet_aton(ip), "big") & mask, mask))
+    return out
+
+
+def _arp_request(src_mac, src_ip, dst_ip):
+    mac = bytes.fromhex(src_mac.replace(":", ""))
+    arp = (b"\x00\x01\x08\x00\x06\x04\x00\x01" + mac + socket.inet_aton(src_ip) +
+           b"\x00" * 6 + socket.inet_aton(dst_ip))
+    frame = b"\xff" * 6 + mac + b"\x08\x06" + arp
+    return frame + b"\x00" * (60 - len(frame))
+
+
+def _arp_listener(ifname):
+    s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0806))
+    s.bind((ifname, 0))
     while True:
-        for ip in KNOWN_HOSTS:
-            for port in (502, 80, 4840, 22):
-                try:
-                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.settimeout(0.3)
-                    s.connect_ex((ip, port))
-                    s.close()
-                except OSError:
-                    pass
-        time.sleep(10)
+        frame = s.recv(2048)
+        if len(frame) < 42 or frame[20:22] != b"\x00\x02":   # ARP replies only
+            continue
+        with _LEARNED_LOCK:
+            LEARNED[socket.inet_ntoa(frame[28:32])] = (frame[22:28].hex(":"), time.time())
+
+
+def arp_populator():
+    try:
+        ifaces = _local_interfaces()
+        senders = {}
+        for ifname, *_ in ifaces:
+            tx = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
+            tx.bind((ifname, 0))
+            senders[ifname] = tx
+            threading.Thread(target=_arp_listener, args=(ifname,), daemon=True).start()
+    except (OSError, subprocess.CalledProcessError) as e:  # no CAP_NET_RAW: tables only show SSH clients
+        print(f"arp_populator disabled: {e}", flush=True)
+        return
+    while True:
+        for target in KNOWN_HOSTS:
+            t = int.from_bytes(socket.inet_aton(target), "big")
+            for ifname, ip, mac, net, mask in ifaces:
+                if t & mask == net:
+                    try:
+                        senders[ifname].send(_arp_request(mac, ip, target))
+                    except OSError:
+                        pass
+                    break
+            time.sleep(0.05)   # spread the requests out rather than one broadcast burst
+        time.sleep(ARP_REFRESH_SECONDS)
+
+
+def neighbours():
+    """[(ip, mac, age_minutes)]: hosts learned by the ARP refresh, plus the kernel's own cache."""
+    now = time.time()
+    with _LEARNED_LOCK:
+        table = {ip: (mac, int((now - seen) // 60)) for ip, (mac, seen) in LEARNED.items()}
+    try:
+        out = subprocess.check_output(["ip", "neigh"], text=True)
+    except Exception:
+        out = ""
+    for line in out.strip().splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and "lladdr" in parts and parts[0] not in table:
+            table[parts[0]] = (parts[parts.index("lladdr") + 1], 0)
+    return [(ip, mac, age) for ip, (mac, age) in sorted(table.items(), key=lambda kv: socket.inet_aton(kv[0]))]
+
 
 def vlan_for_ip(ip):
     """Map an IP to its simulated VLAN — mirrors the topology's Purdue
@@ -89,35 +161,19 @@ def vlan_for_ip(ip):
     return "30"
 
 def get_mac_table():
-    try:
-        out = subprocess.check_output(["ip", "neigh"], text=True)
-    except Exception as e:
-        return f"error reading neighbour table: {e}"
     lines = ["          Mac Address Table",
              "-------------------------------------------",
              "Vlan    Mac Address       Type    Ports",
              "----    -----------       ----    -----"]
-    for line in out.strip().splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and "lladdr" in parts:
-            ip = parts[0]
-            mac = parts[parts.index("lladdr") + 1]
-            vlan = vlan_for_ip(ip)
-            lines.append(f"{vlan:<8}{mac:<18}DYNAMIC Gi0/{sum(bytearray.fromhex(mac.replace(':', ''))) % 24 + 1}")
+    for ip, mac, _age in neighbours():
+        vlan = vlan_for_ip(ip)
+        lines.append(f"{vlan:<8}{mac:<18}DYNAMIC Gi0/{sum(bytearray.fromhex(mac.replace(':', ''))) % 24 + 1}")
     return "\n".join(lines)
 
 def get_arp_table():
-    try:
-        out = subprocess.check_output(["ip", "neigh"], text=True)
-    except Exception as e:
-        return f"error reading arp table: {e}"
     lines = ["Protocol  Address          Age  Hardware Addr   Type  Interface"]
-    for line in out.strip().splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and "lladdr" in parts:
-            ip = parts[0]
-            mac = parts[parts.index("lladdr") + 1]
-            lines.append(f"Internet  {ip:<16} 0    {mac:<15} ARPA  Vlan{vlan_for_ip(ip)}")
+    for ip, mac, age in neighbours():
+        lines.append(f"Internet  {ip:<16} {age:<4} {mac:<15} ARPA  Vlan{vlan_for_ip(ip)}")
     return "\n".join(lines)
 
 class SwitchSSHServer(paramiko.ServerInterface):
