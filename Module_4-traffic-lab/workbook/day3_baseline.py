@@ -49,26 +49,29 @@ print(pkts[["no", "rel", "ip_src", "ip_dst", "app", "payload", "mb_fc"]].head())
 # Step 2 - put every packet into a 5-minute window.
 # 'rel' = seconds since the first packet. Window 0 = 0-299 s, window 1 = 300-599 s ...
 # ---------------------------------------------------------------------------
-# ---- TODO 1: window number for every packet ----
+# ---- window number for every packet ----
 # HINT: integer-divide the 'rel' column by WINDOW_SECONDS and store it in a new column called "window".
-raise NotImplementedError("TODO 1 in day3_baseline.py: window number for every packet - see the HINT above, write your code, then delete this line")
+pkts["window"] = (pkts["rel"] // WINDOW_SECONDS).astype(int)
 
 # Feature 1: packet count per window
-# ---- TODO 2: packets per window ----
+# ---- packets per window ----
 # HINT: group the rows by "window" and count them:  pkts.groupby("window").size()
-raise NotImplementedError("TODO 2 in day3_baseline.py: packets per window - see the HINT above, write your code, then delete this line")
+packet_count = pkts.groupby("window").size()
 
 # Feature 2: average payload size per window (only packets that carry data, i.e. payload > 0)
-# ---- TODO 3: average payload per window ----
+# ---- average payload per window ----
 # HINT: keep rows with pkts["payload"] > 0, then groupby("window")["payload"].mean()
-raise NotImplementedError("TODO 3 in day3_baseline.py: average payload per window - see the HINT above, write your code, then delete this line")
+with_data = pkts[pkts["payload"] > 0]
+avg_payload = with_data.groupby("window")["payload"].mean()
 
 # Feature 3: Modbus function-code distribution per window.
 # Only count REQUESTS (mb_request is True) with a real function code (mb_fc >= 0).
-# ---- TODO 4: function-code counts per window ----
+# ---- function-code counts per window ----
 # HINT: filter the Modbus requests, then  .groupby(["window", "mb_fc"]).size().unstack(fill_value=0)
 #       gives one column per function code.
-raise NotImplementedError("TODO 4 in day3_baseline.py: function-code counts per window - see the HINT above, write your code, then delete this line")
+modbus_requests = pkts[pkts["mb_request"] & (pkts["mb_fc"] >= 0)]
+fc_table = modbus_requests.groupby(["window", "mb_fc"]).size().unstack(fill_value=0)
+fc_table.columns = [f"fc_{int(c):02d}" for c in fc_table.columns]
 
 features = fc_table.copy()
 features.insert(0, "avg_payload", avg_payload)
@@ -89,9 +92,17 @@ print(features.head())
 baseline = {"capture": CAPTURE, "window_minutes": WINDOW_SECONDS / 60, "windows": len(features), "features": {}}
 for column in features.columns:
     values = features[column]
-    # ---- TODO 5: statistics for one feature ----
+    # ---- statistics for one feature ----
     # HINT: values.mean(), values.std(ddof=0), values.min(), values.max(), values.quantile(0.95) ...
-    raise NotImplementedError("TODO 5 in day3_baseline.py: statistics for one feature - see the HINT above, write your code, then delete this line")
+    baseline["features"][column] = {
+        "mean": float(values.mean()),
+        "std": float(values.std(ddof=0)),
+        "min": float(values.min()),
+        "p5": float(values.quantile(0.05)),
+        "median": float(values.quantile(0.50)),
+        "p95": float(values.quantile(0.95)),
+        "max": float(values.max()),
+    }
 
 print(f"\n{'feature':<14}{'mean':>12}{'std':>10}{'p5':>10}{'median':>10}{'p95':>10}")
 for name, s in baseline["features"].items():

@@ -59,18 +59,20 @@ print(f"training windows: {len(train)}   test windows: {len(test)}   features: {
 # ---------------------------------------------------------------------------
 # Train on NORMAL traffic only
 # ---------------------------------------------------------------------------
-# ---- TODO 1: create and fit the model ----
+# ---- create and fit the model ----
 # HINT: model = IsolationForest(contamination=CONTAMINATION, random_state=42)
 #       model.fit(train[FEATURES])
-raise NotImplementedError("TODO 1 in day5_isolation_forest.py: create and fit the model - see the HINT above, write your code, then delete this line")
+model = IsolationForest(contamination=CONTAMINATION, random_state=42)
+model.fit(train[FEATURES])
 
 # ---------------------------------------------------------------------------
 # Score the anomaly capture:  predict() gives -1 for "anomaly", +1 for "normal"
 # ---------------------------------------------------------------------------
-# ---- TODO 2: predict and score ----
+# ---- predict and score ----
 # HINT: model.predict(test[FEATURES]) == -1  gives True for flagged windows.
 #       model.decision_function(test[FEATURES]) gives a score: the lower, the stranger.
-raise NotImplementedError("TODO 2 in day5_isolation_forest.py: predict and score - see the HINT above, write your code, then delete this line")
+ml_flagged = model.predict(test[FEATURES]) == -1
+scores = model.decision_function(test[FEATURES])
 
 ml = pd.DataFrame({"window": test.index, "score": scores.round(3), "ml_flag": ml_flagged})
 ml_windows = set(ml.loc[ml["ml_flag"], "window"])
@@ -82,9 +84,11 @@ print(f"\nIsolation Forest flagged {len(ml_windows)} window(s): {sorted(ml_windo
 z_windows = set(pd.read_csv(DAY4_RESULT)["window"]) if os.path.exists(DAY4_RESULT) else set()
 if not z_windows:
     print(f"(no {DAY4_RESULT} found - run day4_zscore.py first to compare)")
-# ---- TODO 3: set comparison ----
+# ---- set comparison ----
 # HINT: use Python set operations:  a & b (both),  a - b (only in a),  b - a (only in b)
-raise NotImplementedError("TODO 3 in day5_isolation_forest.py: set comparison - see the HINT above, write your code, then delete this line")
+both = z_windows & ml_windows
+only_z = z_windows - ml_windows
+only_ml = ml_windows - z_windows
 print(f"  flagged by BOTH detectors : {sorted(both)}")
 print(f"  only by Z-score           : {sorted(only_z)}")
 print(f"  only by Isolation Forest  : {sorted(only_ml)}")

@@ -64,9 +64,9 @@ The three original generator scripts still work with the same arguments, e.g.
 Every analysis command writes CSVs and a self-contained **HTML report** to `results/`. The reports work
 offline and can be attached to deliverables.
 
-Trainees still write their own detection scripts, which are the runbook deliverables. `workbook/` has
-guided starters for Days 3–6 that stop at each TODO with a hint. `templates/` has a report template
-for every deliverable.
+`workbook/` has complete, commented detection scripts for Days 3–6. Trainees run them, read through how
+each step works, and change them (thresholds, features) for their reports. `templates/` has a report
+template for every deliverable.
 
 ## Layout
 
@@ -78,7 +78,7 @@ Module_4-traffic-lab/
 ├── profiles/                  site profiles (synthetic Palanca, live Docker lab)
 ├── wireshark/Palanca-OT/      Wireshark profile
 ├── live/                      activity generator that runs inside eng-ws-01
-├── workbook/                  trainee starter scripts (Days 3-6)
+├── workbook/                  trainee detection scripts, complete and commented (Days 3-6)
 ├── templates/                 deliverable report templates
 ├── docs/                      TRAINEE_GUIDE.md, FIELD_GUIDE.html
 ├── instructor-only/           solutions + instructor guide  ← remove before handing out

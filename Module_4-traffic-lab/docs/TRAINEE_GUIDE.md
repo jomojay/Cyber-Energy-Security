@@ -172,13 +172,12 @@ From here on you use the prepared captures in `captures/`, and everyone has the 
    Now look at **Percent Packets**. Why is ARP so much bigger by packets than by bytes?
    What are NTP, NBNS, LLMNR and SSDP, and should they be on a control network?
 
-2. **Write your baseline script.** Open `workbook/day3_baseline.py` in a text editor (e.g. `mousepad` or
-   VS Code). Read it top to bottom, then run it:
+2. **Run the baseline script.** Open `workbook/day3_baseline.py` in a text editor (e.g. `mousepad` or
+   VS Code). Read it top to bottom. Each step has a comment saying what it does. Then run it:
    ```bash
    python3 workbook/day3_baseline.py
    ```
-   It stops at **TODO 1** with a message. Read the HINT above that line, write the code, delete the
-   `raise NotImplementedError(...)` line, and run again. Repeat until it finishes.
+   Match each line of output to the step that printed it.
 
 3. **Check your numbers** against the reference tool:
    ```bash
@@ -202,7 +201,7 @@ From here on you use the prepared captures in `captures/`, and everyone has the 
 
 **Goal:** find the 3 anomalies in `captures/palanca_anomalies.pcap`.
 
-1. Complete and run `workbook/day4_zscore.py` (same TODO method). It needs `results/my_baseline.json` from Day 3.
+1. Read and run `workbook/day4_zscore.py`. It needs `results/my_baseline.json` from Day 3.
 2. Compare with the reference:
    ```bash
    ./otlab detect zscore anomalies
@@ -221,7 +220,7 @@ From here on you use the prepared captures in `captures/`, and everyone has the 
 
 ## Day 5 — Machine learning detection (Isolation Forest)
 
-1. Complete and run `workbook/day5_isolation_forest.py`. It trains on the **baseline** (normal only)
+1. Read and run `workbook/day5_isolation_forest.py`. It trains on the **baseline** (normal only)
    and scores the **anomaly** capture, then compares with your Day 4 results.
 2. Reference and tuning:
    ```bash
@@ -255,7 +254,8 @@ From here on you use the prepared captures in `captures/`, and everyone has the 
    tell the attack apart from normal. For every hit, record **attack type, time, source IP, evidence**.
    Use `templates/day6_attack_report_template.md`.
 
-2. **Automate it.** Complete `workbook/day6_signatures.py`. It should find the same 5 events.
+2. **Automate it.** Read and run `workbook/day6_signatures.py`. Each rule is the Python version of
+   one filter above. It should find the same 5 events you found by hand.
 
 3. **Check yourself:**
    ```bash
@@ -318,6 +318,5 @@ otlab isn't only for this lab. On a real site:
 | Wireshark shows no Palanca-OT profile | `./otlab wireshark install`, then restart Wireshark. |
 | No OPC UA / no writes in my live capture | `./otlab live activity` must be running *while* you capture. |
 | `live activity --log` says *cryptography is not installed* | Harmless. The lab's OPC UA runs without encryption, which is why you can read it in Wireshark. |
-| My script says `NotImplementedError: TODO …` | That's expected: fill in that TODO (read the HINT just above it). |
 | The first run of a command is slow | It reads the ~125 MB capture once, then caches it (`captures/.otlab_cache/`). |
 | Timestamps don't match Wireshark | In Wireshark: View → Time Display Format → *Seconds Since Beginning of Capture*. |

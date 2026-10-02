@@ -1,7 +1,7 @@
 # Module 4 — Instructor Guide
 
 > **Remove this folder (`instructor-only/`) and `captures/instructor-only/` before you hand the lab
-> folder to trainees.** They contain the finished workbook solutions and the answer keys.
+> folder to trainees.** They contain the answer keys (and the marked-up solution sources).
 
 ## 1. What is in the package
 
@@ -15,12 +15,12 @@
 | `live/palanca_activity.py` | Days 1–2 | runs inside `eng-ws-01` to add OPC UA sessions, FC06/FC16 writes, HTTP |
 | `profiles/palanca.json` | everyone | site profile: assets, approved writers, thresholds (synthetic captures) |
 | `profiles/palanca_live_lab.json` | Days 1–2 | same, for the Module 2/3 Docker lab's device map |
-| `workbook/` | trainees | Day 3–6 starter scripts with guided TODOs |
+| `workbook/` | trainees | Day 3–6 detection scripts, complete and commented (no TODOs) |
 | `templates/` | trainees | report templates for every deliverable |
 | `docs/TRAINEE_GUIDE.md` | trainees | day-by-day walkthrough |
 | `docs/FIELD_GUIDE.html` | trainees | one-page cheat sheet (filters, FCs, signatures, safety) |
-| `instructor-only/solutions/` | you | complete workbook scripts |
-| `instructor-only/make_workbook.py` | you | rebuilds `workbook/` from the solutions |
+| `instructor-only/solutions/` | you | workbook scripts with `# >>> SOLUTION` markers (source for `make_workbook.py`) |
+| `instructor-only/make_workbook.py` | you | rebuilds `workbook/` as TODO starters (overwrites the completed scripts) |
 
 ## 2. What changed compared with the original generator scripts (and why)
 
@@ -169,13 +169,15 @@ shorter `--hours` captures are scored correctly.
 `./otlab detect` and `./otlab hunt` produce exactly the Day 4 and Day 6 answers. They're there because
 beginners need a reference to check against, and because this is the tool they'll use at work. Options:
 
-1. **Keep them** (recommended) and grade on the *trainee's own script* (`workbook/…`) plus the *evidence and
-   explanation* in the report. Screenshots from Wireshark and "what would you do next" can't be copied from the tool.
+1. **Keep them** (recommended). The workbook scripts are complete, so grade on the *evidence and
+   explanation* in the report and on what the trainee changed and tried (thresholds, features, contamination). Screenshots from Wireshark and "what would you do next" can't be copied from the tool.
 2. For a stricter Day 6, delete `otkit/hunt.py` from trainee copies until the report is submitted.
    Every other command keeps working. `./otlab hunt` will just fail.
 
 ## 6. Customising
 
-* Change a solution, then `python3 instructor-only/make_workbook.py` to rebuild the starters.
+* The workbook currently ships **completed** (trainees are new to Python). To go back to guided TODO starters
+  for a stronger cohort, run `python3 instructor-only/make_workbook.py`. That overwrites `workbook/` with
+  the TODO versions. If you edit a solution, copy the change into `workbook/` too, or re-run the script.
 * Thresholds, approved writers and asset names live in `profiles/palanca.json`.
 * The traffic model is in `otkit/sim/baseline.py`; anomalies and attacks are in `otkit/sim/inject.py`.

@@ -71,14 +71,16 @@ print(f"{len(features)} windows to check")
 zscores = pd.DataFrame(index=features.index)
 for column in features.columns:
     stats = baseline["features"].get(column, {"mean": 0.0, "std": 0.0})  # unknown feature: normal = never happens
-    # ---- TODO 1: z-score of one feature column ----
+    # ---- z-score of one feature column ----
     # HINT: (features[column] - stats["mean"]) / max(stats["std"], MIN_STD)
-    raise NotImplementedError("TODO 1 in day4_zscore.py: z-score of one feature column - see the HINT above, write your code, then delete this line")
+    zscores[column] = (features[column] - stats["mean"]) / max(stats["std"], MIN_STD)
 
-# ---- TODO 2: flag windows ----
+# ---- flag windows ----
 # HINT: take the absolute value (.abs()), then the largest value in each row (.max(axis=1)),
 #       and compare it with THRESHOLD. Also record WHICH feature was largest (.idxmax(axis=1)).
-raise NotImplementedError("TODO 2 in day4_zscore.py: flag windows - see the HINT above, write your code, then delete this line")
+max_abs_z = zscores.abs().max(axis=1)
+top_feature = zscores.abs().idxmax(axis=1)
+flagged = max_abs_z > THRESHOLD
 
 result = pd.DataFrame({
     "window": features.index,

@@ -55,33 +55,55 @@ def report(attack_type, rows, source, evidence):
 
 
 # 1. Reconnaissance -  Wireshark:  tcp.flags.syn==1 && tcp.flags.ack==0
-# ---- TODO 1: SYN scan ----
+# ---- SYN scan ----
 # HINT: syn = pkts[pkts["syn"] & ~pkts["ack"]]; then for each source (groupby("ip_src")) count the
 #       number of DIFFERENT destination ports with ["dport"].nunique(). 5 or more = a scan.
-raise NotImplementedError("TODO 1 in day6_signatures.py: SYN scan - see the HINT above, write your code, then delete this line")
+syn = pkts[pkts["syn"] & ~pkts["ack"]]
+for src, rows in syn.groupby("ip_src"):
+    ports = rows["dport"].nunique()
+    if ports >= SCAN_MIN_PORTS:
+        report("network_reconnaissance", rows, src, f"SYN to {ports} different ports on {', '.join(rows['ip_dst'].unique())}")
 
 # 2. Register enumeration -  Wireshark:  modbus.func_code in {1,2,3,4} && modbus.reference_num > 99
-# ---- TODO 2: register sweep ----
+# ---- register sweep ----
 # HINT: requests are rows with pkts["mb_request"] True; reads have mb_fc in [1,2,3,4];
 #       the register number is mb_addr. Group what you find by source.
-raise NotImplementedError("TODO 2 in day6_signatures.py: register sweep - see the HINT above, write your code, then delete this line")
+reads = pkts[pkts["mb_request"] & pkts["mb_fc"].isin([1, 2, 3, 4])]
+high = reads[reads["mb_addr"] > HIGHEST_NORMAL_REGISTER]
+for src, rows in high.groupby("ip_src"):
+    report("modbus_register_enumeration", rows, src,
+           f"{len(rows)} reads above register {HIGHEST_NORMAL_REGISTER} (up to {rows['mb_addr'].max()})")
 
 # 3. Unauthorised write -  Wireshark:  modbus.func_code in {5,6,15,16} && tcp.dstport==502 && !(ip.src in {...})
-# ---- TODO 3: writes from unapproved hosts ----
+# ---- writes from unapproved hosts ----
 # HINT: writes = requests with mb_fc in [5, 6, 15, 16]; keep those whose ip_src is NOT in APPROVED_WRITERS
 #       ( ~writes["ip_src"].isin(APPROVED_WRITERS) ).
-raise NotImplementedError("TODO 3 in day6_signatures.py: writes from unapproved hosts - see the HINT above, write your code, then delete this line")
+writes = pkts[pkts["mb_request"] & pkts["mb_fc"].isin([5, 6, 15, 16])]
+bad_writes = writes[~writes["ip_src"].isin(APPROVED_WRITERS)]
+for src, rows in bad_writes.groupby("ip_src"):
+    report("unauthorised_write", rows, src,
+           f"{len(rows)} write(s), FC {[int(x) for x in sorted(rows['mb_fc'].unique())]}, to {', '.join(rows['ip_dst'].unique())}")
 
 # 4. PLC program upload -  Wireshark:  ip.dst in {PLCs} && frame.len > 1000
-# ---- TODO 4: big frames to a PLC ----
+# ---- big frames to a PLC ----
 # HINT: pkts["ip_dst"].isin(PLCS) & (pkts["len"] > 1000)
-raise NotImplementedError("TODO 4 in day6_signatures.py: big frames to a PLC - see the HINT above, write your code, then delete this line")
+big = pkts[pkts["ip_dst"].isin(PLCS) & (pkts["len"] > 1000)]
+for src, rows in big.groupby("ip_src"):
+    report("plc_program_upload", rows, src,
+           f"{len(rows)} large frames ({rows['payload'].sum():,} bytes) to {', '.join(rows['ip_dst'].unique())} port {rows['dport'].iloc[0]}")
 
 # 5. ARP spoofing -  Wireshark:  arp.duplicate-address-detected
-# ---- TODO 5: one IP, several MACs ----
+# ---- one IP, several MACs ----
 # HINT: arp = pkts[pkts["arp_op"] > 0]; for each claimed IP (groupby("arp_ip")) count the different
 #       MAC addresses in "arp_mac" with .nunique(). More than 1 = two cards claim the same IP.
-raise NotImplementedError("TODO 5 in day6_signatures.py: one IP, several MACs - see the HINT above, write your code, then delete this line")
+arp = pkts[pkts["arp_op"] > 0].copy()
+arp["arp_ip"] = arp["arp_ip"].astype(str)
+arp["arp_mac"] = arp["arp_mac"].astype(str)
+for ip, rows in arp.groupby("arp_ip"):
+    macs = list(dict.fromkeys(rows["arp_mac"]))    # in order of first appearance
+    if len(macs) > 1:
+        rogue = rows[rows["arp_mac"] != macs[0]]
+        report("arp_spoofing_mitm", rogue, ip, f"{ip} claimed by {macs[0]} and then by {', '.join(macs[1:])}")
 
 os.makedirs("results", exist_ok=True)
 pd.DataFrame(findings).to_csv(OUTPUT, index=False)
