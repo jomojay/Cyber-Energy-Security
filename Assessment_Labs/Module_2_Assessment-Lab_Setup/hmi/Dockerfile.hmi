@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+RUN pip install --no-cache-dir opcua==0.98.13
+COPY hmi_sim.py /app/hmi_sim.py
+WORKDIR /app
+EXPOSE 4840 80
+CMD ["python3", "hmi_sim.py"]

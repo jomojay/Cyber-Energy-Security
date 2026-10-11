@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+RUN pip install --no-cache-dir pymodbus==3.6.9
+COPY modbus_device_sim.py /app/modbus_device_sim.py
+WORKDIR /app
+EXPOSE 502
+CMD ["python3", "modbus_device_sim.py"]

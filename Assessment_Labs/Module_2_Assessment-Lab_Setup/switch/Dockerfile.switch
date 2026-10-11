@@ -1,0 +1,7 @@
+FROM python:3.11-slim
+RUN pip install --no-cache-dir paramiko==3.4.0
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 && rm -rf /var/lib/apt/lists/*
+COPY switch_ssh_sim.py /app/switch_ssh_sim.py
+WORKDIR /app
+EXPOSE 22
+CMD ["python3", "switch_ssh_sim.py"]

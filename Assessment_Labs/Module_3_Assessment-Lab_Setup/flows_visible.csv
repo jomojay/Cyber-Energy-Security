@@ -1,0 +1,11 @@
+id,src,dst,protocol,port,expected
+V1,Supervisory,Control,TCP,502,ALLOW
+V2,Supervisory,Control,ICMP,ANY,ALLOW
+V3,Supervisory,DMZ,TCP,4840,ALLOW
+V4,Enterprise,DMZ,TCP,443,ALLOW
+V5,Enterprise,Control,TCP,502,DENY
+V6,Control,Supervisory,TCP,49152,DENY
+V7,Management,Control,TCP,22,ALLOW
+V8,Management,Control,UDP,161,ALLOW
+V9,Quarantine,Control,TCP,502,DENY
+V10,Supervisory,Management,TCP,22,DENY

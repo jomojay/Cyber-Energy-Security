@@ -1,0 +1,35 @@
+# Module 2 Assessment overlay for the Palanca Docker lab.
+# Use together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.assessment.yml up -d --build
+# Place this file and the assessment/ folder next to docker-compose.yml.
+
+services:
+  # Changes what this PLC reports, so trainees must read live tool output
+  # instead of copying vendor strings from their practice notes.
+  plc-aux-01:
+    environment:
+      DEVICE_VENDOR: "Rockwell Automation ControlLogix"
+
+  # The "unfamiliar source": an unauthorised device reading registers from
+  # every PLC/RTU. Different behaviour from the legitimate polling master.
+  rogue-dev:
+    build:
+      context: ./assessment/rogue-dev
+    container_name: rogue-dev
+    hostname: rogue-dev
+    networks:
+      ot_control: {ipv4_address: 192.168.1.99}
+    depends_on: [plc-main-01, plc-aux-01]
+    restart: unless-stopped
+
+  # Shares the core switch's network namespace and keeps its neighbour
+  # (ARP) table populated, so the switch output is meaningful in Section B2.
+  switch-primer:
+    image: python:3.11-slim
+    container_name: switch-primer
+    network_mode: "service:sw-core-01"
+    volumes:
+      - ./assessment/switch-primer/switch_primer.py:/app/switch_primer.py:ro
+    command: ["python3", "/app/switch_primer.py"]
+    depends_on: [sw-core-01]
+    restart: unless-stopped

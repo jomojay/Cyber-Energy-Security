@@ -1,0 +1,11 @@
+rule,action,src,dst,protocol,port
+1,ALLOW,Supervisory,Control,TCP,502
+2,ALLOW,Supervisory,Control,TCP,4840
+3,ALLOW,Enterprise,Control,ANY,ANY
+4,ALLOW,Supervisory,DMZ,TCP,ANY
+5,DENY,DMZ,Supervisory,ANY,ANY
+6,ALLOW,DMZ,Supervisory,TCP,443
+7,ALLOW,Enterprise,DMZ,TCP,80-443
+8,ALLOW,Management,ANY,TCP,ANY
+9,ALLOW,Quarantine,Management,ANY,ANY
+10,ALLOW,ANY,ANY,ANY,ANY

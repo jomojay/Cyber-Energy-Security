@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nmap tshark tcpdump openssh-client iproute2 iputils-ping \
+    vim less curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir pymodbus==3.6.9 opcua==0.98.13 requests
+# Allow non-root tshark capture
+RUN groupadd -f wireshark && usermod -aG wireshark root
+WORKDIR /root
+COPY palanca_modbus_read.py /root/palanca_modbus_read.py
+COPY motd.txt /etc/motd
+CMD ["sleep", "infinity"]
