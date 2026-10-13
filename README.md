@@ -50,6 +50,13 @@ Cyber-Energy-Security/
 │   ├── scripts/test_firewall_rules.sh ← self-check against whatever ruleset is currently on fw-ot-01
 │   ├── instructor-only/             ← finished reference ruleset — strip before handing the repo to a cohort
 │   └── logs/                        ← test_firewall_rules.sh results land here
+├── Module5-vuln-lab/
+│   ├── README.md                    ← Module 5 trainee guide (day-by-day commands, Run Book errata)
+│   ├── Module_5_Lab_Run_Book.docx   ← 7-day vulnerability assessment run book
+│   ├── setup.sh                     ← installs python-nmap + copies the files below into eng-ws-01 (no sudo)
+│   ├── ot_safe_scanner.py           ← OTSafeScanner starter code (Days 3-4)
+│   ├── cve_correlator.py            ← offline CVE lookup + OT-CVSS adjustment (Day 4)
+│   └── cve_reference_dataset.json   ← offline, teaching-only CVE dataset
 └── <ModuleName>/                    ← future modules — either pattern above is fine
     └── README.md
 ```
@@ -129,6 +136,7 @@ Each module has its own setup script inside its folder, and **each is invoked di
 | Module_01 | `setup_lab_env.sh` | `bash setup_lab_env.sh` (no `sudo`) |
 | Module_2_Lab_Setup | `setup.sh` | `./setup.sh` (no `sudo`) |
 | Module_3 | `setup.sh` | `./setup.sh` (no `sudo`) |
+| Module5-vuln-lab | `setup.sh` | `./setup.sh` (no `sudo`) — **start Module_2_Lab_Setup first**; Module 5 has no lab of its own and no teardown |
 
 Each of these has a matching `teardown.sh` in the same folder, invoked the same way (`sudo bash teardown.sh [-v]` for Introductory_Module, `bash teardown.sh [-v]` for Module_01, `./teardown.sh [-v]` for Module_2_Lab_Setup / Module_3). Introductory_Module and Module_01's teardown scripts always stop and remove the OpenPLC + ScadaBR containers (`docker compose down`) and remove everything created under your home directory. Because OpenPLC and ScadaBR are containers, not host installs, there's no systemd unit or `/opt` install left behind afterward — pass `-v` to also wipe their Docker volumes (uploaded PLC program, ScadaBR data source config) for a full reset. Only the built Docker images, group grants, and apt/pip packages are left in place on their own; the scripts print the exact commands for each at the end, for you to run by hand if you want a fully clean host.
 

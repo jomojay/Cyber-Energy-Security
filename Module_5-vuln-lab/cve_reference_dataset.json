@@ -1,0 +1,57 @@
+{
+  "_notice": "Offline, teaching-only CVE reference dataset for Module 5 Lab Day 4. Entries are illustrative and modelled on real, publicly documented ICS vulnerability classes affecting the vendor/product lines used in the Palanca lab (Module 2 asset inventory). Always cross-check against the live NVD (nvd.nist.gov) for real assessments -- this file exists so the lab exercise works without requiring live internet access in the training room.",
+  "vendors": {
+    "Siemens S7-1200": [
+      {
+        "cve_id": "CVE-2023-0001-SIM",
+        "summary": "Improper authentication in web server component allows unauthenticated configuration read access.",
+        "base_cvss": 7.5,
+        "affected_versions": "Firmware < V4.5",
+        "cwe": "CWE-287 Improper Authentication"
+      },
+      {
+        "cve_id": "CVE-2022-0002-SIM",
+        "summary": "Hard-coded credentials in engineering protocol allow bypass of access controls.",
+        "base_cvss": 9.1,
+        "affected_versions": "Firmware < V4.2",
+        "cwe": "CWE-798 Use of Hard-coded Credentials"
+      }
+    ],
+    "GE Automation": [
+      {
+        "cve_id": "CVE-2023-0003-SIM",
+        "summary": "Denial of service via malformed Modbus/TCP request causes RTU watchdog reset.",
+        "base_cvss": 6.5,
+        "affected_versions": "All versions prior to vendor patch 2023-Q3",
+        "cwe": "CWE-20 Improper Input Validation"
+      }
+    ],
+    "ABB REL670": [
+      {
+        "cve_id": "CVE-2021-0004-SIM",
+        "summary": "Protection relay web interface vulnerable to cross-site request forgery, allowing unauthorised setpoint changes.",
+        "base_cvss": 8.1,
+        "affected_versions": "Firmware < 2.2.5",
+        "cwe": "CWE-352 Cross-Site Request Forgery"
+      }
+    ],
+    "ABB ACS580": [
+      {
+        "cve_id": "CVE-2022-0005-SIM",
+        "summary": "VFD control interface accepts unauthenticated Modbus write commands to speed/torque registers.",
+        "base_cvss": 8.6,
+        "affected_versions": "All versions without Modbus write ACL enabled",
+        "cwe": "CWE-306 Missing Authentication for Critical Function"
+      }
+    ],
+    "Cisco Cat 2960X": [
+      {
+        "cve_id": "CVE-2020-0006-SIM",
+        "summary": "SNMPv2c community string transmitted in cleartext allows credential interception on the management VLAN.",
+        "base_cvss": 5.9,
+        "affected_versions": "Any configuration using SNMPv2c instead of SNMPv3",
+        "cwe": "CWE-319 Cleartext Transmission of Sensitive Information"
+      }
+    ]
+  }
+}
