@@ -1,0 +1,8 @@
+# Generated while working through the labs
+plc_baselines.json
+logs/
+my-results/
+evidence/
+__pycache__/
+# Instructor answer notes — strip before handing the kit to a cohort
+instructor-only/

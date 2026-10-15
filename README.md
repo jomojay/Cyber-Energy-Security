@@ -50,13 +50,23 @@ Cyber-Energy-Security/
 │   ├── scripts/test_firewall_rules.sh ← self-check against whatever ruleset is currently on fw-ot-01
 │   ├── instructor-only/             ← finished reference ruleset — strip before handing the repo to a cohort
 │   └── logs/                        ← test_firewall_rules.sh results land here
-├── Module5-vuln-lab/
+├── Module_5-vuln-lab/
 │   ├── README.md                    ← Module 5 trainee guide (day-by-day commands, Run Book errata)
 │   ├── Module_5_Lab_Run_Book.docx   ← 7-day vulnerability assessment run book
 │   ├── setup.sh                     ← installs python-nmap + copies the files below into eng-ws-01 (no sudo)
 │   ├── ot_safe_scanner.py           ← OTSafeScanner starter code (Days 3-4)
 │   ├── cve_correlator.py            ← offline CVE lookup + OT-CVSS adjustment (Day 4)
 │   └── cve_reference_dataset.json   ← offline, teaching-only CVE dataset
+├── Module_6-capstone-kit/
+│   ├── README.md                    ← kit overview + instructor setup (Day 4 capture, Day 5-6 lab switch)
+│   ├── TRAINEE_GUIDE.md             ← trainee step-by-step, numbered to match the run book
+│   ├── Module_6_Lab_Run_Book.docx   ← 7-day incident response & hardening run book
+│   ├── collect_evidence.sh          ← live evidence collection: CPU/processes, network, RAM, storage (Day 4)
+│   ├── plc_integrity_check.py       ← PLC program baseline/integrity checker (Day 4)
+│   ├── plc_main_baseline.st, plc_main_current.st ← sample approved / recovered PLC programs (Day 4)
+│   ├── hardening_checklist.md       ← SL-2 hardening checklist (Day 5)
+│   ├── verify_hardening.sh          ← automated checklist checks against the Docker lab (Days 5-6)
+│   └── compare_scans.py             ← before/after OTSafeScanner comparison (Day 6)
 └── <ModuleName>/                    ← future modules — either pattern above is fine
     └── README.md
 ```
